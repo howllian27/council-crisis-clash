@@ -8,6 +8,7 @@ import Index from "./pages/Index";
 import Game from "./pages/Game";
 import GameLobby from "./components/GameLobby";
 import NotFound from "./pages/NotFound";
+import { MultiplayerProvider } from "./contexts/MultiplayerContext";
 
 const queryClient = new QueryClient();
 
@@ -17,13 +18,15 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/lobby" element={<GameLobby />} />
-          <Route path="/game" element={<Game />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <MultiplayerProvider>
+          <Routes>
+            <Route path="/" element={<Index />} />
+            <Route path="/lobby" element={<GameLobby />} />
+            <Route path="/game" element={<Game />} />
+            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </MultiplayerProvider>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>

@@ -1,26 +1,29 @@
 
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import Button from '../components/Button';
-import { Play } from 'lucide-react';
+import { Play, Users } from 'lucide-react';
+import { useMultiplayer } from '../contexts/MultiplayerContext';
 
 const Index = () => {
-  const navigate = useNavigate();
   const [playerName, setPlayerName] = useState('');
-  const [isStarting, setIsStarting] = useState(false);
+  const [sessionCode, setSessionCode] = useState('');
+  const [mode, setMode] = useState<'create' | 'join' | null>(null);
   
-  const handleStartSession = () => {
-    // Basic validation
+  const { createSession, joinSession, isLoading } = useMultiplayer();
+  
+  const handleCreateSession = () => {
     if (playerName.trim()) {
-      setIsStarting(true);
-      
-      // Simulate a brief loading period before navigating
-      setTimeout(() => {
-        navigate('/lobby');
-      }, 500);
+      createSession(playerName);
     } else {
-      // Optional: Could add a toast or error state here
       alert('Please enter your council title');
+    }
+  };
+  
+  const handleJoinSession = () => {
+    if (playerName.trim() && sessionCode.trim()) {
+      joinSession(sessionCode, playerName);
+    } else {
+      alert('Please enter your council title and session code');
     }
   };
   
@@ -51,15 +54,84 @@ const Index = () => {
             />
           </div>
           
-          <Button
-            fullWidth
-            glow={!!playerName}
-            onClick={handleStartSession}
-            disabled={!playerName}
-          >
-            <Play className="mr-2" />
-            {isStarting ? 'Initializing Session...' : 'Start New Session'}
-          </Button>
+          {mode === null && (
+            <div className="flex flex-col gap-4">
+              <Button
+                fullWidth
+                glow={!!playerName}
+                onClick={() => setMode('create')}
+                disabled={!playerName}
+              >
+                <Play className="mr-2" />
+                Create New Session
+              </Button>
+              
+              <Button
+                variant="outline"
+                fullWidth
+                onClick={() => setMode('join')}
+              >
+                <Users className="mr-2" />
+                Join Existing Session
+              </Button>
+            </div>
+          )}
+          
+          {mode === 'create' && (
+            <div className="animate-fade-in space-y-4">
+              <p className="text-sm text-gray-400">
+                Create a new game session and invite up to 3 other council members to join.
+              </p>
+              <Button 
+                fullWidth 
+                glow={!!playerName} 
+                onClick={handleCreateSession}
+                disabled={isLoading}
+              >
+                {isLoading ? 'Creating Session...' : 'Start New Session'}
+              </Button>
+              <Button 
+                variant="ghost" 
+                fullWidth 
+                onClick={() => setMode(null)}
+              >
+                Back
+              </Button>
+            </div>
+          )}
+          
+          {mode === 'join' && (
+            <div className="animate-fade-in space-y-4">
+              <div>
+                <label htmlFor="sessionCode" className="block text-sm font-medium mb-2">
+                  Session Code
+                </label>
+                <input
+                  id="sessionCode"
+                  type="text"
+                  value={sessionCode}
+                  onChange={(e) => setSessionCode(e.target.value.toUpperCase())}
+                  placeholder="Enter 6-digit code"
+                  className="w-full p-3 bg-secondary text-foreground border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-neon-pink"
+                />
+              </div>
+              <Button 
+                fullWidth 
+                glow={!!playerName && !!sessionCode} 
+                onClick={handleJoinSession}
+                disabled={isLoading}
+              >
+                {isLoading ? 'Joining Session...' : 'Join Session'}
+              </Button>
+              <Button 
+                variant="ghost" 
+                fullWidth 
+                onClick={() => setMode(null)}
+              >
+                Back
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -67,4 +139,3 @@ const Index = () => {
 };
 
 export default Index;
-
