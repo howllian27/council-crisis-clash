@@ -1,5 +1,5 @@
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import ResourceBar from '../components/ResourceBar';
 import ScenarioDisplay from '../components/ScenarioDisplay';
 import VotingPanel from '../components/VotingPanel';
@@ -7,6 +7,7 @@ import Button from '../components/Button';
 import { cn } from '../lib/utils';
 import { useMultiplayer } from '../contexts/MultiplayerContext';
 import { useNavigate } from 'react-router-dom';
+import { createGameSession, getSampleScenario } from '../services/gameSessionService';
 
 const Game = () => {
   const navigate = useNavigate();
@@ -19,14 +20,31 @@ const Game = () => {
     leaveSession
   } = useMultiplayer();
   
-  // Redirect if no session
-  useEffect(() => {
-    if (!currentSession) {
-      navigate('/');
-    }
-  }, [currentSession, navigate]);
+  // Debug mode state to bypass session check for direct navigation
+  const [debugSession, setDebugSession] = useState(null);
   
-  if (!currentSession) {
+  // Initialize a debug session if navigating directly to /game
+  useEffect(() => {
+    if (!currentSession && !debugSession) {
+      // Check if we're in development mode (for debugging only)
+      if (import.meta.env.DEV) {
+        console.log("Debug mode: Creating sample session for direct game view");
+        // Create a sample session for debugging purposes
+        const sampleSession = createGameSession("Debug Player");
+        sampleSession.currentScenario = getSampleScenario();
+        sampleSession.status = 'in-progress';
+        setDebugSession(sampleSession);
+      } else {
+        // In production, redirect to home
+        navigate('/');
+      }
+    }
+  }, [currentSession, navigate, debugSession]);
+  
+  // Use currentSession if available, otherwise use debugSession
+  const activeSession = currentSession || debugSession;
+  
+  if (!activeSession) {
     return <div>Loading...</div>;
   }
   
@@ -35,10 +53,10 @@ const Game = () => {
     resources, 
     currentRound, 
     currentScenario 
-  } = currentSession;
+  } = activeSession;
   
   // Find current player
-  const currentPlayer = players.find(p => p.id === playerId);
+  const currentPlayer = players.find(p => p.id === playerId) || players[0]; // Fallback to first player in debug mode
   const secretObjective = currentPlayer?.secretObjective;
   
   if (!currentScenario) {
@@ -46,11 +64,31 @@ const Game = () => {
   }
   
   const handleVote = (optionId: string) => {
-    castVote(optionId);
+    if (currentSession) {
+      castVote(optionId);
+    } else {
+      console.log("Debug mode: Vote cast for", optionId);
+    }
   };
   
   const handleNextRound = () => {
-    nextRound();
+    if (currentSession) {
+      nextRound();
+    } else {
+      console.log("Debug mode: Moving to next round");
+      const updatedSession = { ...debugSession };
+      updatedSession.currentRound = updatedSession.currentRound + 1;
+      updatedSession.currentScenario = getSampleScenario();
+      setDebugSession(updatedSession);
+    }
+  };
+  
+  const handleLeave = () => {
+    if (currentSession) {
+      leaveSession();
+    } else {
+      navigate('/');
+    }
   };
   
   return (
@@ -61,11 +99,12 @@ const Game = () => {
           <div>
             <h1 className="text-3xl font-bold neon-glow">Project Oversight</h1>
             <p className="text-gray-400">Round {currentRound} • {gamePhase === 'scenario' ? 'New Crisis' : gamePhase === 'voting' ? 'Council Vote' : 'Resolution'}</p>
+            {!currentSession && <div className="text-neon-pink text-xs mt-1">Debug Mode</div>}
           </div>
           
           <div className="flex gap-4">
             <Button variant="outline" size="sm">Game Rules</Button>
-            <Button variant="ghost" size="sm" onClick={leaveSession}>Exit Game</Button>
+            <Button variant="ghost" size="sm" onClick={handleLeave}>Exit Game</Button>
           </div>
         </header>
         
