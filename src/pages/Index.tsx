@@ -2,23 +2,25 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Button from '../components/Button';
+import { Play } from 'lucide-react';
 
 const Index = () => {
   const navigate = useNavigate();
-  const [sessionCode, setSessionCode] = useState('');
   const [playerName, setPlayerName] = useState('');
-  const [isCreating, setIsCreating] = useState(false);
-  const [isJoining, setIsJoining] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
   
-  const handleCreateSession = () => {
+  const handleStartSession = () => {
+    // Basic validation
     if (playerName.trim()) {
-      navigate('/lobby');
-    }
-  };
-  
-  const handleJoinSession = () => {
-    if (playerName.trim() && sessionCode.trim()) {
-      navigate('/lobby');
+      setIsStarting(true);
+      
+      // Simulate a brief loading period before navigating
+      setTimeout(() => {
+        navigate('/lobby');
+      }, 500);
+    } else {
+      // Optional: Could add a toast or error state here
+      alert('Please enter your council title');
     }
   };
   
@@ -49,67 +51,15 @@ const Index = () => {
             />
           </div>
           
-          <div className="flex flex-col gap-4">
-            <Button
-              glow
-              fullWidth
-              onClick={() => {
-                setIsCreating(true);
-                setIsJoining(false);
-              }}
-            >
-              Create New Session
-            </Button>
-            
-            <Button
-              variant="outline"
-              fullWidth
-              onClick={() => {
-                setIsJoining(true);
-                setIsCreating(false);
-              }}
-            >
-              Join Existing Session
-            </Button>
-          </div>
-          
-          {isCreating && (
-            <div className="animate-fade-in space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Create a new game session and invite up to 3 other council members to join.
-              </p>
-              <Button fullWidth onClick={handleCreateSession}>Create Session</Button>
-            </div>
-          )}
-          
-          {isJoining && (
-            <div className="animate-fade-in space-y-4">
-              <div>
-                <label htmlFor="sessionCode" className="block text-sm font-medium mb-2">
-                  Session Code
-                </label>
-                <input
-                  id="sessionCode"
-                  type="text"
-                  value={sessionCode}
-                  onChange={(e) => setSessionCode(e.target.value)}
-                  placeholder="Enter 6-digit code"
-                  className="w-full p-3 bg-secondary text-foreground border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-neon-pink"
-                />
-              </div>
-              <Button fullWidth onClick={handleJoinSession}>Join Session</Button>
-            </div>
-          )}
-        </div>
-      </div>
-      
-      <div className="mt-12 text-center animate-fade-in">
-        <p className="text-muted-foreground text-sm mb-2">
-          Made with minimalist design principles
-        </p>
-        <div className="flex gap-4 justify-center">
-          <Button variant="link" size="sm">How to Play</Button>
-          <Button variant="link" size="sm">About</Button>
+          <Button
+            fullWidth
+            glow={!!playerName}
+            onClick={handleStartSession}
+            disabled={!playerName}
+          >
+            <Play className="mr-2" />
+            {isStarting ? 'Initializing Session...' : 'Start New Session'}
+          </Button>
         </div>
       </div>
     </div>
@@ -117,3 +67,4 @@ const Index = () => {
 };
 
 export default Index;
+
