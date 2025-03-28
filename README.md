@@ -1,69 +1,124 @@
-# Welcome to your Lovable project
+# Project Oversight
 
-## Project info
+A multiplayer, decision-making game powered by AI where players assume roles on a futuristic government council, voting on absurd crises that affect shared resources.
 
-**URL**: https://lovable.dev/projects/54bda354-cfef-4f1a-9401-227c4ad3e463
+## Features
 
-## How can I edit this code?
+- 🎮 Multiplayer (4 players/session)
+- 🤖 AI-generated scenarios, secret incentives, and narrative outcomes
+- 🗳️ Real-time voting with countdown timers
+- 📊 Dynamic resource dashboard
+- 🔒 Secret incentives & elimination mechanics
+- 🔥 End conditions: 1 player remains, 10 rounds, or resource depletion
 
-There are several ways of editing your application.
+## Tech Stack
 
-**Use Lovable**
+- Frontend: React + Tailwind CSS
+- Backend: Python FastAPI + WebSockets
+- AI: OpenAI GPT-4 API
+- State Management: Redis
+- Database: PostgreSQL
+- Containerization: Docker
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/54bda354-cfef-4f1a-9401-227c4ad3e463) and start prompting.
+## Prerequisites
 
-Changes made via Lovable will be committed automatically to this repo.
+- Docker and Docker Compose
+- OpenAI API Key
+- Node.js 18+ (for local development)
+- Python 3.10+ (for local development)
 
-**Use your preferred IDE**
+## Setup
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+1. Clone the repository:
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+```bash
+git clone https://github.com/yourusername/project-oversight.git
+cd project-oversight
+```
 
-Follow these steps:
+2. Create a `.env` file in the root directory:
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+```bash
+cp .env.example .env
+```
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+3. Update the `.env` file with your OpenAI API key and other configuration.
 
-# Step 3: Install the necessary dependencies.
-npm i
+4. Start the application using Docker Compose:
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+```bash
+docker-compose up --build
+```
+
+The application will be available at:
+
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8000
+- API Documentation: http://localhost:8000/docs
+
+## Local Development
+
+### Frontend
+
+```bash
+# Install dependencies
+npm install
+
+# Start development server
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+### Backend
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+```bash
+# Create and activate virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-**Use GitHub Codespaces**
+# Install dependencies
+cd backend
+pip install -r requirements.txt
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+# Start development server
+uvicorn main:app --reload
+```
 
-## What technologies are used for this project?
+## Project Structure
 
-This project is built with .
+```
+project-oversight/
+├── frontend/           # React frontend application
+│   ├── src/
+│   │   ├── components/
+│   │   ├── features/
+│   │   ├── hooks/
+│   │   ├── pages/
+│   │   ├── services/
+│   │   └── styles/
+│   └── package.json
+├── backend/           # FastAPI backend application
+│   ├── main.py
+│   ├── game/
+│   │   └── state.py
+│   ├── ai/
+│   │   └── scenario_generator.py
+│   └── requirements.txt
+├── docker-compose.yml
+└── README.md
+```
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## API Documentation
 
-## How can I deploy this project?
+The API documentation is available at http://localhost:8000/docs when running the backend server.
 
-Simply open [Lovable](https://lovable.dev/projects/54bda354-cfef-4f1a-9401-227c4ad3e463) and click on Share -> Publish.
+## Contributing
 
-## I want to use a custom domain - is that possible?
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-We don't support custom domains (yet). If you want to deploy your project under your own domain then we recommend using Netlify. Visit our docs for more details: [Custom domains](https://docs.lovable.dev/tips-tricks/custom-domain/)
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
