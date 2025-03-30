@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 import uuid
 from game.state import GameState, Player, GamePhase
-from game.supabase_client import supabase
+from game.supabase_client import supabase, get_game, get_players, add_player
 
 # Configure logging
 logging.basicConfig(
@@ -30,10 +30,11 @@ app = FastAPI(title="Project Oversight API")
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, replace with specific origins
+    allow_origins=["*"],  # Allow all origins during development
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Allow all methods
+    allow_headers=["*"],  # Allow all headers
+    expose_headers=["*"],
 )
 
 # Request models
@@ -64,28 +65,47 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 # Game endpoints
 @app.post("/api/games")
 async def create_game(request: CreateGameRequest):
-    session_id = str(uuid.uuid4())
-    host_id = str(uuid.uuid4())
-    
-    logger.info(f"Creating new game with session_id: {session_id}")
-    
-    # Create game state
-    game = await GameState.create(session_id, host_id)
-    
-    # Add host as first player
-    host = Player(
-        id=host_id,
-        name=request.host_name,
-        role="host",
-        secret_incentive="Host's secret objective"
-    )
-    await game.add_player(host)
-    
-    return {
-        "session_id": session_id,
-        "host_id": host_id,
-        "message": "Game created successfully"
-    }
+    try:
+        session_id = str(uuid.uuid4())
+        host_id = str(uuid.uuid4())
+        
+        logger.info(f"Creating new game with session_id: {session_id}")
+        
+        # Create game state
+        game = await GameState.create(session_id, host_id)
+        if not game:
+            logger.error("Failed to create game state")
+            raise HTTPException(status_code=500, detail="Failed to create game")
+        
+        # Add host as first player
+        host = Player(
+            id=host_id,
+            name=request.host_name,
+            role="host",
+            secret_incentive="Host's secret objective"
+        )
+        success = await game.add_player(host)
+        if not success:
+            logger.error("Failed to add host player")
+            raise HTTPException(status_code=500, detail="Failed to add host player")
+        
+        # Verify game was created in Supabase
+        game_data = get_game(session_id)
+        if not game_data:
+            logger.error("Game creation verification failed")
+            raise HTTPException(status_code=500, detail="Game creation verification failed")
+        
+        logger.info(f"Game created successfully with session_id: {session_id}")
+        return {
+            "session_id": session_id,
+            "host_id": host_id,
+            "message": "Game created successfully"
+        }
+    except Exception as e:
+        logger.error(f"Error creating game: {str(e)}")
+        logger.error(f"Error type: {type(e)}")
+        logger.error(f"Error details: {e.__dict__}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/games/{session_id}/join")
 async def join_game(session_id: str, request: JoinGameRequest):
@@ -112,13 +132,6 @@ async def join_game(session_id: str, request: JoinGameRequest):
             logger.error(f"Game {session_id} is full with {len(players_data)} players")
             raise HTTPException(status_code=400, detail="Game is full")
         
-        # Load game state
-        logger.debug("Loading game state...")
-        game = await GameState.load(session_id)
-        if not game:
-            logger.error(f"Failed to load game state for {session_id}")
-            raise HTTPException(status_code=404, detail="Game not found")
-        
         # Create new player
         player_id = str(uuid.uuid4())
         logger.debug(f"Creating new player with ID: {player_id}")
@@ -132,12 +145,12 @@ async def join_game(session_id: str, request: JoinGameRequest):
         
         # Add player to game
         logger.debug("Attempting to add player to game...")
-        success = await game.add_player(player)
-        if not success:
-            logger.error(f"Failed to add player {request.player_name} to game {session_id}")
-            raise HTTPException(status_code=400, detail="Failed to join game")
-        
-        logger.debug(f"Successfully added player {request.player_name} to game {session_id}")
+        try:
+            add_player(session_id, player.dict())
+            logger.debug(f"Successfully added player {request.player_name} to game {session_id}")
+        except Exception as e:
+            logger.error(f"Failed to add player to Supabase: {str(e)}")
+            raise HTTPException(status_code=500, detail="Failed to add player to game")
         
         # Verify player was added
         logger.debug("Verifying player was added to Supabase...")

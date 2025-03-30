@@ -14,8 +14,19 @@ export default function Home() {
       console.log("=== Creating new game ===");
       console.log("Host name:", hostName);
 
+      if (!hostName.trim()) {
+        console.error("Host name is empty");
+        throw new Error("Please enter your name");
+      }
+
+      console.log("Calling gameService.createGame...");
       const response = await gameService.createGame(hostName);
       console.log("Game created successfully:", response);
+
+      if (!response.session_id || !response.host_id) {
+        console.error("Invalid response from server:", response);
+        throw new Error("Invalid response from server");
+      }
 
       console.log("Navigating to game page with params:", {
         sessionId: response.session_id,
@@ -31,6 +42,8 @@ export default function Home() {
       if (error instanceof Error) {
         console.error("Error stack:", error.stack);
       }
+      // You might want to show this error to the user
+      alert(error instanceof Error ? error.message : "Failed to create game");
     }
   };
 

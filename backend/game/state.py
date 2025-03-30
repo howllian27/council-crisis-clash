@@ -1,7 +1,19 @@
 from typing import Dict, List, Optional
 from pydantic import BaseModel
 from enum import Enum
-from .supabase_client import *
+from .supabase_client import (
+    create_game,
+    get_game,
+    get_players,
+    get_resources,
+    get_secret_incentives,
+    update_game,
+    update_resources,
+    update_player,
+    add_player,
+    add_secret_incentive,
+    record_vote
+)
 
 class ResourceType(str, Enum):
     TECH = "tech"
@@ -50,20 +62,29 @@ class GameState(BaseModel):
 
     @classmethod
     async def create(cls, session_id: str, host_id: str) -> 'GameState':
-        # Create game in Supabase
-        create_game(session_id, host_id)
-        
-        # Initialize resources
-        resources = {
-            ResourceType.TECH: 100,
-            ResourceType.MANPOWER: 100,
-            ResourceType.ECONOMY: 100,
-            ResourceType.HAPPINESS: 100,
-            ResourceType.TRUST: 100
-        }
-        update_resources(session_id, resources)
-        
-        return cls(session_id=session_id)
+        try:
+            # Create game in Supabase
+            game_data = create_game(session_id, host_id)
+            if not game_data:
+                raise ValueError("Failed to create game in Supabase")
+            
+            # Initialize resources
+            resources = {
+                "tech": 100,
+                "manpower": 100,
+                "economy": 100,
+                "happiness": 100,
+                "trust": 100
+            }
+            update_resources(session_id, resources)
+            
+            # Create and return game state
+            game_state = cls(session_id=session_id)
+            await game_state.save()  # Ensure the game state is saved
+            return game_state
+        except Exception as e:
+            print(f"Error in GameState.create: {str(e)}")
+            raise
 
     @classmethod
     async def load(cls, session_id: str) -> Optional['GameState']:

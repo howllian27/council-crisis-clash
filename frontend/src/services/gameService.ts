@@ -83,25 +83,41 @@ export interface GameState {
 export const gameService = {
   async createGame(hostName: string) {
     try {
-      console.log("Creating new game for host:", hostName);
+      console.log("=== Starting game creation ===");
+      console.log("Host name:", hostName);
+
+      console.log("Making API request to http://localhost:8000/api/games");
       const response = await fetch("http://localhost:8000/api/games", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Accept: "application/json",
         },
+        mode: "cors",
         body: JSON.stringify({ host_name: hostName }),
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || "Failed to create game");
+        const errorData = await response.json().catch(() => ({}));
+        console.error("Server error:", errorData);
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const data = await response.json();
       console.log("Game created successfully:", data);
+
+      if (!data.session_id || !data.host_id) {
+        console.error("Invalid response data:", data);
+        throw new Error("Invalid response from server");
+      }
+
       return data;
     } catch (error) {
-      console.error("Error creating game:", error);
+      console.error("=== Error in createGame ===");
+      console.error("Error details:", error);
+      if (error instanceof Error) {
+        console.error("Error stack:", error.stack);
+      }
       throw error;
     }
   },
@@ -116,15 +132,21 @@ export const gameService = {
       const { data: gameData, error: gameError } = await supabase
         .from("games")
         .select("*")
-        .eq("session_id", sessionId)
-        .single();
+        .eq("session_id", sessionId);
 
       if (gameError) {
         console.error("Error checking game existence:", gameError);
-        throw new Error(`Game not found: ${gameError.message}`);
+        throw new Error(`Failed to check game existence: ${gameError.message}`);
       }
 
-      console.log("Found existing game:", gameData);
+      if (!gameData || gameData.length === 0) {
+        console.error("No game found with session ID:", sessionId);
+        throw new Error(
+          "Game not found. Please check the session code and try again."
+        );
+      }
+
+      console.log("Found existing game:", gameData[0]);
 
       // Check current players
       const { data: currentPlayers, error: playersError } = await supabase
@@ -187,16 +209,15 @@ export const gameService = {
         .from("players")
         .select("*")
         .eq("session_id", sessionId)
-        .eq("name", playerName)
-        .single();
+        .eq("name", playerName);
 
-      if (playerError) {
+      if (playerError || !playerData || playerData.length === 0) {
         console.log(
           "Player not found in Supabase, attempting direct insert..."
         );
         const playerId = data.player_id || uuidv4();
         const { error: insertError } = await supabase.from("players").insert({
-          id: playerId,
+          player_id: playerId,
           session_id: sessionId,
           name: playerName,
           role: "player",
@@ -213,7 +234,7 @@ export const gameService = {
           console.log("Successfully inserted player directly into Supabase");
         }
       } else {
-        console.log("Player verified in Supabase:", playerData);
+        console.log("Player verified in Supabase:", playerData[0]);
       }
 
       return data;
@@ -441,6 +462,33 @@ export const gameService = {
       console.log("Vote recorded successfully");
     } catch (error) {
       console.error("Error in recordVote:", error);
+      throw error;
+    }
+  },
+
+  async updatePlayer(sessionId: string, playerId: string, updates: any) {
+    try {
+      const response = await fetch(
+        `http://localhost:8000/api/games/${sessionId}/players/${playerId}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(updates),
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Failed to update player");
+      }
+
+      const data = await response.json();
+      console.log("Player updated successfully:", data);
+      return data;
+    } catch (error) {
+      console.error("Error updating player:", error);
       throw error;
     }
   },
