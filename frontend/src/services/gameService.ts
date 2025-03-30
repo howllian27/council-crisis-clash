@@ -80,6 +80,14 @@ export interface GameState {
   };
 }
 
+interface PlayerUpdate {
+  isReady?: boolean;
+  hasVoted?: boolean;
+  isEliminated?: boolean;
+  vote_weight?: number;
+  secret_incentive?: string;
+}
+
 export const gameService = {
   async createGame(hostName: string) {
     try {
@@ -466,7 +474,11 @@ export const gameService = {
     }
   },
 
-  async updatePlayer(sessionId: string, playerId: string, updates: any) {
+  async updatePlayer(
+    sessionId: string,
+    playerId: string,
+    updates: PlayerUpdate
+  ) {
     try {
       const response = await fetch(
         `http://localhost:8000/api/games/${sessionId}/players/${playerId}`,
@@ -489,6 +501,26 @@ export const gameService = {
       return data;
     } catch (error) {
       console.error("Error updating player:", error);
+      throw error;
+    }
+  },
+
+  async leaveGame(sessionId: string, playerId: string): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from("players")
+        .update({ is_active: false })
+        .eq("session_id", sessionId)
+        .eq("player_id", playerId);
+
+      if (error) {
+        console.error("Error leaving game:", error);
+        throw error;
+      }
+
+      console.log("Successfully left game");
+    } catch (error) {
+      console.error("Error in leaveGame:", error);
       throw error;
     }
   },

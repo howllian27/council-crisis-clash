@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 import uuid
 from game.state import GameState, Player, GamePhase
-from game.supabase_client import supabase, get_game, get_players, add_player
+from game.supabase_client import supabase, get_game, get_players, add_player, update_player
 
 # Configure logging
 logging.basicConfig(
@@ -203,6 +203,25 @@ async def start_game(session_id: str):
     await game.save()
     
     return {"message": "Game started successfully"}
+
+@app.patch("/api/games/{session_id}/players/{player_id}")
+async def update_player(session_id: str, player_id: str, request: Request):
+    try:
+        updates = await request.json()
+        logger.debug(f"Updating player {player_id} in session {session_id} with updates: {updates}")
+        
+        # Update player in Supabase
+        update_player(session_id, player_id, updates)
+        
+        # Get updated game state
+        game_state = await GameState.load(session_id)
+        if not game_state:
+            raise HTTPException(status_code=404, detail="Game not found")
+            
+        return game_state.dict()
+    except Exception as e:
+        logger.error(f"Error updating player: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

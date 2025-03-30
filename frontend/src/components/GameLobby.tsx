@@ -26,7 +26,7 @@ const GameLobby = () => {
     return <div>Loading...</div>;
   }
 
-  const { code: sessionCode, players } = currentSession;
+  const { code: sessionCode, players = {} } = currentSession;
 
   // Convert players object to array for easier manipulation
   const playersArray = Object.values(players as Record<string, Player>);
@@ -48,75 +48,73 @@ const GameLobby = () => {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-gradient-to-b from-black to-gray-900 p-4">
-      <div className="w-full max-w-4xl mx-auto p-6 glass-panel animate-fade-in">
-        <div className="flex flex-col md:flex-row justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold neon-glow mb-4 md:mb-0">
-            Game Lobby
-          </h1>
-          <div className="flex flex-col sm:flex-row items-center gap-4">
-            <div className="flex items-center gap-2 bg-secondary px-4 py-2 rounded-md">
-              <span className="text-sm text-muted-foreground">
-                Session Code:
-              </span>
-              <span className="font-mono font-bold text-neon-pink">
-                {sessionCode}
-              </span>
-            </div>
-            <Button variant="outline" size="sm" onClick={handleCopyCode}>
-              Copy Code
-            </Button>
-          </div>
+    <div className="min-h-screen bg-background p-4">
+      <div className="max-w-4xl mx-auto space-y-8">
+        <div className="flex justify-between items-center">
+          <h1 className="text-3xl font-bold">Game Lobby</h1>
+          <Button variant="outline" onClick={leaveSession}>
+            Leave Game
+          </Button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
-          {Array.from({ length: 4 }).map((_, index) => {
-            const player = playersArray[index];
-            const isEmpty = !player;
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">Session Code:</span>
+            <code className="px-2 py-1 bg-secondary rounded">
+              {sessionCode}
+            </code>
+            <Button variant="ghost" size="sm" onClick={handleCopyCode}>
+              Copy
+            </Button>
+          </div>
 
-            return (
-              <div
-                key={index}
-                className={cn(
-                  "p-4 rounded-lg border transition-all-200 border-border relative",
-                  player
-                    ? "bg-secondary"
-                    : "bg-secondary bg-opacity-30 border-dashed"
-                )}
-              >
-                {player?.id === currentSession.host_id && (
-                  <div className="absolute -top-2 -right-2 bg-neon-pink text-xs px-2 py-1 rounded-full text-white">
-                    Host
-                  </div>
-                )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+            {Array.from({ length: 4 }).map((_, index) => {
+              const player = playersArray[index];
+              const isEmpty = !player;
 
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center text-xl">
-                    {player ? player.name.charAt(0) : "?"}
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="font-bold">
-                      {player ? player.name : "Waiting for player..."}
-                    </h3>
-                    <div className="flex items-center mt-1">
-                      <div
-                        className={cn(
-                          "w-2 h-2 rounded-full mr-2",
-                          player?.isReady ? "bg-green-500" : "bg-gray-400"
-                        )}
-                      />
-                      <span className="text-sm text-muted-foreground">
-                        {player?.isReady ? "Ready" : "Not Ready"}
-                      </span>
+              return (
+                <div
+                  key={index}
+                  className={cn(
+                    "p-4 rounded-lg border transition-all-200 border-border relative",
+                    player
+                      ? "bg-secondary"
+                      : "bg-secondary bg-opacity-30 border-dashed"
+                  )}
+                >
+                  {player?.id === currentSession.host_id && (
+                    <div className="absolute -top-2 -right-2 bg-neon-pink text-xs px-2 py-1 rounded-full text-white">
+                      Host
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center text-xl">
+                      {player ? player.name.charAt(0) : "?"}
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-bold">
+                        {player ? player.name : "Waiting for player..."}
+                      </h3>
+                      <div className="flex items-center mt-1">
+                        <div
+                          className={cn(
+                            "w-2 h-2 rounded-full mr-2",
+                            player?.isReady ? "bg-green-500" : "bg-gray-400"
+                          )}
+                        />
+                        <span className="text-sm text-muted-foreground">
+                          {player?.isReady ? "Ready" : "Not Ready"}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
 
-        <div className="mt-8 space-y-4">
           <div className="flex items-center gap-3">
             <div
               className={cn(
@@ -135,13 +133,33 @@ const GameLobby = () => {
               Leave Game
             </Button>
             {isHost && (
-              <Button
-                glow={playersArray.every((p) => p?.isReady)}
-                disabled={!playersArray.every((p) => !p || p.isReady)}
-                onClick={handleStartGame}
-              >
-                Start Game
-              </Button>
+              <div className="flex flex-col gap-2">
+                <Button
+                  glow={
+                    playersArray.length === 4 &&
+                    playersArray.every((p) => p?.isReady)
+                  }
+                  disabled={
+                    playersArray.length < 4 ||
+                    !playersArray.every((p) => !p || p.isReady)
+                  }
+                  onClick={handleStartGame}
+                >
+                  Start Game
+                </Button>
+                {playersArray.length < 4 && (
+                  <span className="text-sm text-muted-foreground">
+                    Waiting for {4 - playersArray.length} more player
+                    {4 - playersArray.length !== 1 ? "s" : ""}...
+                  </span>
+                )}
+                {playersArray.length === 4 &&
+                  !playersArray.every((p) => p?.isReady) && (
+                    <span className="text-sm text-muted-foreground">
+                      Waiting for all players to be ready...
+                    </span>
+                  )}
+              </div>
             )}
           </div>
         </div>
