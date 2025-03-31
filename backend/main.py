@@ -30,11 +30,12 @@ app = FastAPI(title="Project Oversight API")
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins during development
+    allow_origins=["http://localhost:8080"],  # Allow frontend origin
     allow_credentials=True,
     allow_methods=["*"],  # Allow all methods
     allow_headers=["*"],  # Allow all headers
     expose_headers=["*"],
+    max_age=3600,  # Cache preflight requests for 1 hour
 )
 
 # Request models
@@ -182,27 +183,45 @@ async def record_vote(session_id: str, request: VoteRequest):
     
     return {"message": "Vote recorded successfully"}
 
-@app.get("/api/games/{session_id}")
+@app.get("/api/games/{session_id}", response_model=GameState)
 async def get_game_state(session_id: str):
-    game = await GameState.load(session_id)
-    if not game:
+    game_state = await GameState.load(session_id)
+    if not game_state:
         raise HTTPException(status_code=404, detail="Game not found")
-    
-    return game.dict()
+    return game_state
 
 @app.post("/api/games/{session_id}/start")
 async def start_game(session_id: str):
-    game = await GameState.load(session_id)
-    if not game:
-        raise HTTPException(status_code=404, detail="Game not found")
-    
-    if len(game.players) < 2:
-        raise HTTPException(status_code=400, detail="Need at least 2 players to start")
-    
-    game.phase = GamePhase.SCENARIO
-    await game.save()
-    
-    return {"message": "Game started successfully"}
+    try:
+        logger.info(f"Starting game for session_id: {session_id}")
+        
+        # Load game state
+        logger.info("Loading game state...")
+        game = await GameState.load(session_id)
+        if not game:
+            logger.error(f"Game not found for session_id: {session_id}")
+            raise HTTPException(status_code=404, detail="Game not found")
+        
+        logger.info(f"Current game state: {game.dict()}")
+        
+        if len(game.players) < 2:
+            logger.error(f"Not enough players to start game. Current players: {len(game.players)}")
+            raise HTTPException(status_code=400, detail="Need at least 2 players to start")
+        
+        logger.info(f"Updating game phase to SCENARIO for session_id: {session_id}")
+        game.phase = GamePhase.SCENARIO
+        await game.save()
+        
+        logger.info(f"Game started successfully for session_id: {session_id}")
+        return {"message": "Game started successfully"}
+    except HTTPException as he:
+        logger.error(f"HTTP Exception in start_game: {he.detail}")
+        raise he
+    except Exception as e:
+        logger.error(f"Unexpected error in start_game: {str(e)}")
+        logger.error(f"Error type: {type(e)}")
+        logger.error(f"Error details: {e.__dict__}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.patch("/api/games/{session_id}/players/{player_id}")
 async def update_player(session_id: str, player_id: str, request: Request):

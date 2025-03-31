@@ -18,6 +18,8 @@ interface MultiplayerContextType {
   setPlayerReady: (isReady: boolean) => Promise<void>;
   startGame: () => Promise<void>;
   leaveSession: () => Promise<void>;
+  castVote: (optionId: string) => Promise<void>;
+  nextRound: () => Promise<void>;
 }
 
 const MultiplayerContext = createContext<MultiplayerContextType | undefined>(
@@ -54,8 +56,14 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
   // Subscribe to game updates when session changes
   useEffect(() => {
     if (currentSession?.session_id) {
+      console.log(
+        "Setting up subscription for session:",
+        currentSession.session_id
+      );
+
       // Unsubscribe from previous subscription if it exists
       if (subscription) {
+        console.log("Unsubscribing from previous subscription");
         subscription.unsubscribe();
       }
 
@@ -63,18 +71,100 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
       const newSubscription = gameService.subscribeToGame(
         currentSession.session_id,
         (gameState) => {
-          setCurrentSession((prev) => ({
-            ...prev,
-            players: gameState.players,
-            phase: gameState.phase,
-            current_scenario: gameState.current_scenario,
-          }));
+          console.log("Received game state update:", gameState);
+          setCurrentSession((prev) => {
+            console.log("Previous state:", prev);
+            console.log("New phase:", gameState.phase);
+
+            // If game phase changes from lobby to scenario, navigate to game page
+            if (gameState.phase === "scenario" && prev?.phase === "lobby") {
+              console.log(
+                "Phase changed from lobby to scenario, navigating to game page"
+              );
+              navigate(
+                `/game?sessionId=${currentSession.session_id}&playerId=${playerId}`
+              );
+            }
+
+            // Convert the game state to match our expected format
+            const players = Object.values(gameState.players).map((player) => ({
+              id: player.id,
+              name: player.name,
+              role: player.role,
+              isReady: true,
+              hasVoted: player.has_voted,
+              isEliminated: player.is_eliminated,
+              secretObjective: {
+                description: player.secret_incentive,
+                isCompleted: false,
+                progress: 0,
+                target: 3,
+              },
+            }));
+
+            const resources = [
+              { type: "tech", value: gameState.resources.tech, maxValue: 100 },
+              {
+                type: "manpower",
+                value: gameState.resources.manpower,
+                maxValue: 100,
+              },
+              {
+                type: "economy",
+                value: gameState.resources.economy,
+                maxValue: 100,
+              },
+              {
+                type: "happiness",
+                value: gameState.resources.happiness,
+                maxValue: 100,
+              },
+              {
+                type: "trust",
+                value: gameState.resources.trust,
+                maxValue: 100,
+              },
+            ];
+
+            return {
+              ...prev,
+              players,
+              resources,
+              currentRound: gameState.current_round,
+              phase: gameState.phase,
+              currentScenario: {
+                title: "Mysterious Signal From Deep Space",
+                description:
+                  "Our deep space monitoring stations have detected an unusual signal originating from beyond our solar system. Initial analysis suggests it could be artificial in nature. The signal appears to contain complex mathematical sequences that our scientists believe may be an attempt at communication. However, there is no consensus on whether we should respond or what the message might contain.",
+                consequences:
+                  "How we handle this situation could dramatically affect our technological development and potentially our safety if the signal represents a threat.",
+                options: [
+                  {
+                    id: "option1",
+                    text: "Allocate resources to decode the signal but do not respond yet",
+                  },
+                  {
+                    id: "option2",
+                    text: "Immediately broadcast a response using similar mathematical principles",
+                  },
+                  {
+                    id: "option3",
+                    text: "Ignore the signal and increase our defensive capabilities",
+                  },
+                  {
+                    id: "option4",
+                    text: "Share the discovery with the public and crowdsource analysis",
+                  },
+                ],
+              },
+            };
+          });
         }
       );
 
       setSubscription(newSubscription);
     }
-  }, [currentSession?.session_id]);
+  }, [currentSession?.session_id, navigate, playerId]);
 
   // Create a new game session
   const createSession = async (name: string) => {
@@ -91,15 +181,55 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
         session_id: response.session_id,
         host_id: response.host_id,
         code: response.session_id,
-        players: {
-          [response.host_id]: {
+        players: [
+          {
             id: response.host_id,
             name: name,
             role: "Council Leader",
             isReady: true,
             hasVoted: false,
             isEliminated: false,
+            secretObjective: {
+              description:
+                "Ensure the 'trust' resource stays above 60% for 3 rounds",
+              isCompleted: false,
+              progress: 0,
+              target: 3,
+            },
           },
+        ],
+        resources: [
+          { type: "tech", value: 75, maxValue: 100 },
+          { type: "manpower", value: 60, maxValue: 100 },
+          { type: "economy", value: 80, maxValue: 100 },
+          { type: "happiness", value: 90, maxValue: 100 },
+          { type: "trust", value: 70, maxValue: 100 },
+        ],
+        currentRound: 1,
+        currentScenario: {
+          title: "Mysterious Signal From Deep Space",
+          description:
+            "Our deep space monitoring stations have detected an unusual signal originating from beyond our solar system. Initial analysis suggests it could be artificial in nature. The signal appears to contain complex mathematical sequences that our scientists believe may be an attempt at communication. However, there is no consensus on whether we should respond or what the message might contain.",
+          consequences:
+            "How we handle this situation could dramatically affect our technological development and potentially our safety if the signal represents a threat.",
+          options: [
+            {
+              id: "option1",
+              text: "Allocate resources to decode the signal but do not respond yet",
+            },
+            {
+              id: "option2",
+              text: "Immediately broadcast a response using similar mathematical principles",
+            },
+            {
+              id: "option3",
+              text: "Ignore the signal and increase our defensive capabilities",
+            },
+            {
+              id: "option4",
+              text: "Share the discovery with the public and crowdsource analysis",
+            },
+          ],
         },
       });
 
@@ -139,7 +269,65 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
         session_id: sessionId,
         host_id: response.host_id,
         code: sessionId,
-        players: gameState.players || {},
+        players: Object.values(gameState.players).map((player) => ({
+          id: player.id,
+          name: player.name,
+          role: player.role,
+          isReady: true,
+          hasVoted: player.has_voted,
+          isEliminated: player.is_eliminated,
+          secretObjective: {
+            description: player.secret_incentive,
+            isCompleted: false,
+            progress: 0,
+            target: 3,
+          },
+        })),
+        resources: [
+          { type: "tech", value: gameState.resources.tech, maxValue: 100 },
+          {
+            type: "manpower",
+            value: gameState.resources.manpower,
+            maxValue: 100,
+          },
+          {
+            type: "economy",
+            value: gameState.resources.economy,
+            maxValue: 100,
+          },
+          {
+            type: "happiness",
+            value: gameState.resources.happiness,
+            maxValue: 100,
+          },
+          { type: "trust", value: gameState.resources.trust, maxValue: 100 },
+        ],
+        currentRound: gameState.current_round,
+        currentScenario: {
+          title: "Mysterious Signal From Deep Space",
+          description:
+            "Our deep space monitoring stations have detected an unusual signal originating from beyond our solar system. Initial analysis suggests it could be artificial in nature. The signal appears to contain complex mathematical sequences that our scientists believe may be an attempt at communication. However, there is no consensus on whether we should respond or what the message might contain.",
+          consequences:
+            "How we handle this situation could dramatically affect our technological development and potentially our safety if the signal represents a threat.",
+          options: [
+            {
+              id: "option1",
+              text: "Allocate resources to decode the signal but do not respond yet",
+            },
+            {
+              id: "option2",
+              text: "Immediately broadcast a response using similar mathematical principles",
+            },
+            {
+              id: "option3",
+              text: "Ignore the signal and increase our defensive capabilities",
+            },
+            {
+              id: "option4",
+              text: "Share the discovery with the public and crowdsource analysis",
+            },
+          ],
+        },
       });
 
       setIsConnected(true);
@@ -180,8 +368,10 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
     if (!currentSession?.session_id) return;
 
     try {
+      console.log("Starting game...");
       await gameService.startGame(currentSession.session_id);
-      navigate("/game");
+      console.log("Game started successfully");
+      // Navigation will be handled by the subscription when phase changes
     } catch (err) {
       console.error("Error starting game:", err);
       setError("Failed to start game. Please try again.");
@@ -205,6 +395,37 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
+  // Cast a vote for the current round
+  const castVote = async (optionId: string) => {
+    if (!currentSession?.session_id || !playerId) return;
+
+    try {
+      await gameService.recordVote(
+        currentSession.session_id,
+        playerId,
+        optionId
+      );
+      await gameService.updatePlayer(currentSession.session_id, playerId, {
+        hasVoted: true,
+      });
+    } catch (err) {
+      console.error("Error casting vote:", err);
+      setError("Failed to cast vote. Please try again.");
+    }
+  };
+
+  // Move to the next round
+  const nextRound = async () => {
+    if (!currentSession?.session_id) return;
+
+    try {
+      await gameService.startGame(currentSession.session_id);
+    } catch (err) {
+      console.error("Error starting next round:", err);
+      setError("Failed to start next round. Please try again.");
+    }
+  };
+
   return (
     <MultiplayerContext.Provider
       value={{
@@ -221,6 +442,8 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
         setPlayerReady,
         startGame,
         leaveSession,
+        castVote,
+        nextRound,
       }}
     >
       {children}

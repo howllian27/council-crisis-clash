@@ -20,8 +20,31 @@ RESOURCES_TABLE = "resources"
 SECRET_INCENTIVES_TABLE = "secret_incentives"
 
 def get_game(session_id: str):
-    response = supabase.table(GAMES_TABLE).select("*").eq("session_id", session_id).execute()
-    return response.data[0] if response.data else None
+    try:
+        # Select only game-specific columns from the games table
+        columns = (
+            "session_id, host_id, current_round, max_rounds, is_active, phase"
+        )
+        response = (
+            supabase
+            .table(GAMES_TABLE)
+            .select(columns)
+            .eq("session_id", session_id)
+            .single()
+            .execute()
+        )
+        
+        if not response.data:
+            print(f"No game found for session_id: {session_id}")  # Debug print
+            return None
+            
+        print(f"Game data from Supabase: {response.data}")  # Debug print
+        return response.data
+    except Exception as e:
+        print(f"Error in get_game: {str(e)}")  # Debug print
+        print(f"Error type: {type(e)}")  # Debug print
+        print(f"Error details: {e.__dict__}")  # Debug print
+        return None
 
 def create_game(session_id: str, host_id: str):
     try:
@@ -104,21 +127,59 @@ def record_vote(session_id: str, player_id: str, round: int, vote: str):
     }).execute()
 
 def get_resources(session_id: str):
-    response = supabase.table(RESOURCES_TABLE).select("*").eq("session_id", session_id).execute()
-    return response.data[0] if response.data else None
+    try:
+        columns = ["tech", "manpower", "economy", "happiness", "trust"]
+        response = supabase.table(RESOURCES_TABLE).select(columns).eq("session_id", session_id).execute()
+        if not response.data:
+            print(f"No resources found for session_id: {session_id}")  # Debug print
+            return None
+            
+        # Get the first (and only) resource record
+        resource_data = response.data[0]
+        print(f"Raw resource data from Supabase: {resource_data}")  # Debug print
+        
+        # Define valid resource fields
+        valid_fields = ["tech", "manpower", "economy", "happiness", "trust"]
+        
+        # Create filtered data with only valid resource fields
+        filtered_data = {}
+        for field in valid_fields:
+            try:
+                value = resource_data.get(field)
+                if value is None:
+                    print(f"Warning: {field} is None, using default value")  # Debug print
+                    filtered_data[field] = 100
+                else:
+                    filtered_data[field] = int(value)
+            except (ValueError, TypeError) as e:
+                print(f"Error converting {field} to int: {e}")  # Debug print
+                filtered_data[field] = 100  # Default value if conversion fails
+        
+        print(f"Filtered resource data: {filtered_data}")  # Debug print
+        return filtered_data
+    except Exception as e:
+        print(f"Error in get_resources: {str(e)}")  # Debug print
+        print(f"Error type: {type(e)}")  # Debug print
+        print(f"Error details: {e.__dict__}")  # Debug print
+        return None
 
 def update_resources(session_id: str, resources: dict):
     try:
-        # First check if resources exist for this session
-        existing = get_resources(session_id)
+        # Add session_id to resources
+        resources["session_id"] = session_id
         
-        if existing:
-            # Update existing resources
-            supabase.table(RESOURCES_TABLE).update(resources).eq("session_id", session_id).execute()
-        else:
-            # Insert new resources
-            resources["session_id"] = session_id
-            supabase.table(RESOURCES_TABLE).insert(resources).execute()
+        # Use upsert to handle both insert and update cases
+        response = (
+            supabase
+            .table(RESOURCES_TABLE)
+            .upsert(resources, on_conflict="session_id")
+            .execute()
+        )
+        
+        if not response.data:
+            raise ValueError("Failed to update resources in Supabase")
+            
+        return response.data[0]
     except Exception as e:
         print(f"Error updating resources: {str(e)}")
         raise

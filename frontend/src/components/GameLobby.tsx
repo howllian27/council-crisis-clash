@@ -135,14 +135,8 @@ const GameLobby = () => {
             {isHost && (
               <div className="flex flex-col gap-2">
                 <Button
-                  glow={
-                    playersArray.length === 4 &&
-                    playersArray.every((p) => p?.isReady)
-                  }
-                  disabled={
-                    playersArray.length < 4 ||
-                    !playersArray.every((p) => !p || p.isReady)
-                  }
+                  glow={playersArray.length === 4}
+                  disabled={playersArray.length < 4}
                   onClick={handleStartGame}
                 >
                   Start Game
@@ -153,12 +147,6 @@ const GameLobby = () => {
                     {4 - playersArray.length !== 1 ? "s" : ""}...
                   </span>
                 )}
-                {playersArray.length === 4 &&
-                  !playersArray.every((p) => p?.isReady) && (
-                    <span className="text-sm text-muted-foreground">
-                      Waiting for all players to be ready...
-                    </span>
-                  )}
               </div>
             )}
           </div>

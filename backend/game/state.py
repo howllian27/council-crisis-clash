@@ -60,6 +60,13 @@ class GameState(BaseModel):
     round_end_time: Optional[float] = None
     secret_incentives: Dict[str, str] = {}  # player_id -> incentive
 
+    class Config:
+        arbitrary_types_allowed = True
+        json_encoders = {
+            ResourceType: lambda v: v.value
+        }
+        extra = "ignore"
+
     @classmethod
     async def create(cls, session_id: str, host_id: str) -> 'GameState':
         try:
@@ -68,19 +75,9 @@ class GameState(BaseModel):
             if not game_data:
                 raise ValueError("Failed to create game in Supabase")
             
-            # Initialize resources
-            resources = {
-                "tech": 100,
-                "manpower": 100,
-                "economy": 100,
-                "happiness": 100,
-                "trust": 100
-            }
-            update_resources(session_id, resources)
-            
             # Create and return game state
             game_state = cls(session_id=session_id)
-            await game_state.save()  # Ensure the game state is saved
+            await game_state.save()  # This will handle resource creation
             return game_state
         except Exception as e:
             print(f"Error in GameState.create: {str(e)}")
@@ -88,42 +85,104 @@ class GameState(BaseModel):
 
     @classmethod
     async def load(cls, session_id: str) -> Optional['GameState']:
-        # Load game data from Supabase
-        game_data = get_game(session_id)
-        if not game_data:
+        try:
+            # 1) Load the top-level "games" row
+            game_data = get_game(session_id)
+            if not game_data:
+                return None
+
+            game_data_copy = game_data.copy()
+            # If the "games" table has a JSON column "resources" that we don't want:
+            if "resources" in game_data_copy:
+                del game_data_copy["resources"]
+
+            # 2) Load players from the "players" table
+            players_data = get_players(session_id)
+            players_dict = {}
+            for p in players_data:
+                db_id = p["player_id"] if "player_id" in p else p["id"]
+                players_dict[db_id] = Player(
+                    id=db_id,
+                    name=p["name"],
+                    role=p["role"],
+                    secret_incentive=p.get("secret_incentive", "N/A"),
+                    is_active=p.get("is_active", True),
+                    vote_weight=p.get("vote_weight", 1.0),
+                    has_voted=p.get("has_voted", False),
+                )
+
+            # 3) Load resources from the "resources" table,
+            #    which might contain "id", "session_id", "created_at", etc.
+            raw_resources = get_resources(session_id)
+            valid_keys = ["tech", "manpower", "economy", "happiness", "trust"]
+            filtered_resources = {}
+            if raw_resources:
+                for key in valid_keys:
+                    # Gracefully handle None or missing
+                    val = raw_resources.get(key, 100)
+                    try:
+                        filtered_resources[ResourceType(key)] = int(val)
+                    except:
+                        filtered_resources[ResourceType(key)] = 100
+            else:
+                # No resources row found => all 100
+                for key in valid_keys:
+                    filtered_resources[ResourceType(key)] = 100
+
+            # 4) Load secret incentives
+            incentives_data = get_secret_incentives(session_id)
+            incentives_dict = {row["player_id"]: row["incentive"] for row in incentives_data}
+
+            # 5) Now build the GameState. Note that we do NOT pass in
+            #    any leftover "resources" from `game_data_copy`.
+            #    We manually set `resources=filtered_resources`.
+            game_state = cls(
+                session_id=session_id,
+                players=players_dict,
+                resources=filtered_resources,
+                current_round=game_data_copy.get("current_round", 1),
+                max_rounds=game_data_copy.get("max_rounds", 10),
+                current_scenario=game_data_copy.get("current_scenario"),
+                # fill in current_options or voting_results if needed
+                current_options=[],
+                voting_results={},
+                is_active=game_data_copy.get("is_active", True),
+                phase=GamePhase(game_data_copy.get("phase", GamePhase.LOBBY)),
+                secret_incentives=incentives_dict
+            )
+            return game_state
+
+        except Exception as e:
+            print(f"Error in GameState.load: {str(e)}")
             return None
-            
-        players_data = get_players(session_id)
-        resources_data = get_resources(session_id)
-        incentives_data = get_secret_incentives(session_id)
-        
-        # Convert to GameState object
-        return cls(
-            session_id=session_id,
-            players={p["id"]: Player(**p) for p in players_data},
-            resources=resources_data,
-            current_round=game_data["current_round"],
-            current_scenario=game_data["current_scenario"],
-            is_active=game_data["is_active"],
-            phase=game_data["phase"],
-            secret_incentives={i["player_id"]: i["incentive"] for i in incentives_data}
-        )
 
     async def save(self):
-        # Update game state in Supabase
-        update_game(self.session_id, {
-            "current_round": self.current_round,
-            "current_scenario": self.current_scenario,
-            "is_active": self.is_active,
-            "phase": self.phase
-        })
-        
-        # Update resources
-        update_resources(self.session_id, self.resources)
-        
-        # Update players
-        for player_id, player in self.players.items():
-            update_player(self.session_id, player_id, player.dict())
+        try:
+            # Update game state in Supabase
+            game_updates = {
+                "current_round": self.current_round,
+                "current_scenario": self.current_scenario,
+                "is_active": self.is_active,
+                "phase": self.phase.value  # Convert enum to string value
+            }
+            print(f"Saving game updates: {game_updates}")  # Debug print
+            update_game(self.session_id, game_updates)
+            
+            # Convert resources from ResourceType enum to string keys
+            resources_dict = {resource_type.value: value for resource_type, value in self.resources.items()}
+            print(f"Saving resources: {resources_dict}")  # Debug print
+            update_resources(self.session_id, resources_dict)
+            
+            # Update players
+            for player_id, player in self.players.items():
+                player_updates = player.dict()
+                print(f"Updating player {player_id}: {player_updates}")  # Debug print
+                update_player(self.session_id, player_id, player_updates)
+        except Exception as e:
+            print(f"Error in save: {str(e)}")  # Debug print
+            print(f"Error type: {type(e)}")  # Debug print
+            print(f"Error details: {e.__dict__}")  # Debug print
+            raise
 
     async def add_player(self, player: Player) -> bool:
         if len(self.players) >= 4:

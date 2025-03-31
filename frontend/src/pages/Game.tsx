@@ -1,144 +1,333 @@
-import { useEffect, useState } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
-import { Button } from "@/components/ui/button";
-import { gameService, GameState } from "@/services/gameService";
+import React, { useEffect, useState } from "react";
+import ResourceBar from "../components/ResourceBar";
+import ScenarioDisplay from "../components/ScenarioDisplay";
+import VotingPanel from "../components/VotingPanel";
+import Button from "../components/Button";
+import { cn } from "../lib/utils";
+import { useMultiplayer } from "../contexts/MultiplayerContext";
+import { useNavigate } from "react-router-dom";
+import {
+  createGameSession,
+  getSampleScenario,
+} from "../services/gameSessionService";
 
-export default function Game() {
-  const [searchParams] = useSearchParams();
+const Game = () => {
   const navigate = useNavigate();
-  const sessionId = searchParams.get("sessionId");
-  const playerId = searchParams.get("playerId");
-  const [gameState, setGameState] = useState<GameState | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    currentSession,
+    playerId,
+    gamePhase,
+    castVote,
+    nextRound,
+    leaveSession,
+  } = useMultiplayer();
 
+  // Debug mode state to bypass session check for direct navigation
+  const [debugSession, setDebugSession] = useState(null);
+
+  // Initialize a debug session if navigating directly to /game
   useEffect(() => {
-    if (!sessionId || !playerId) {
-      navigate("/");
-      return;
-    }
-
-    // Load initial game state
-    const loadGameState = async () => {
-      try {
-        const state = await gameService.getGameState(sessionId);
-        setGameState(state);
-      } catch (err) {
-        console.error("Error loading game state:", err);
-        setError("Failed to load game state");
+    if (!currentSession && !debugSession) {
+      // Check if we're in development mode (for debugging only)
+      if (import.meta.env.DEV) {
+        console.log("Debug mode: Creating sample session for direct game view");
+        // Create a sample session for debugging purposes
+        const sampleSession = createGameSession("Debug Player");
+        sampleSession.currentScenario = getSampleScenario();
+        sampleSession.status = "in-progress";
+        // Add some sample players for testing
+        sampleSession.players = [
+          {
+            id: "1",
+            name: "Debug Player",
+            role: "Council Leader",
+            isReady: true,
+            hasVoted: false,
+            isEliminated: false,
+            secretObjective: {
+              description:
+                "Ensure the 'trust' resource stays above 60% for 3 rounds",
+              isCompleted: false,
+              progress: 0,
+              target: 3,
+            },
+          },
+          {
+            id: "2",
+            name: "Player 2",
+            role: "Council Member",
+            isReady: true,
+            hasVoted: false,
+            isEliminated: false,
+            secretObjective: {
+              description:
+                "Keep the 'economy' resource above 70% for the next 2 rounds",
+              isCompleted: false,
+              progress: 0,
+              target: 3,
+            },
+          },
+          {
+            id: "3",
+            name: "Player 3",
+            role: "Council Member",
+            isReady: true,
+            hasVoted: false,
+            isEliminated: false,
+            secretObjective: {
+              description:
+                "Ensure the 'tech' resource drops below 40% at least once",
+              isCompleted: false,
+              progress: 0,
+              target: 3,
+            },
+          },
+          {
+            id: "4",
+            name: "Player 4",
+            role: "Council Member",
+            isReady: true,
+            hasVoted: false,
+            isEliminated: false,
+            secretObjective: {
+              description:
+                "Ensure the 'happiness' resource stays balanced between 40-60%",
+              isCompleted: false,
+              progress: 0,
+              target: 3,
+            },
+          },
+        ];
+        setDebugSession(sampleSession);
+      } else {
+        // In production, redirect to home
+        navigate("/");
       }
-    };
+    }
+  }, [currentSession, navigate, debugSession]);
 
-    loadGameState();
+  // Use currentSession if available, otherwise use debugSession
+  const activeSession = currentSession || debugSession;
 
-    // Subscribe to game state changes
-    const subscription = gameService.subscribeToGame(sessionId, (state) => {
-      console.log("Game state updated:", state);
-      setGameState(state);
-    });
+  if (!activeSession) {
+    return <div>Loading...</div>;
+  }
 
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [sessionId, playerId, navigate]);
+  const { players, resources, currentRound, currentScenario } = activeSession;
 
-  const handleLeave = () => {
-    navigate("/");
+  // Find current player
+  const currentPlayer = players.find((p) => p.id === playerId) || players[0]; // Fallback to first player in debug mode
+  const secretObjective = currentPlayer?.secretObjective;
+
+  if (!currentScenario) {
+    return <div>Error: No scenario available</div>;
+  }
+
+  // Set game phase based on session state
+  const currentGamePhase = gamePhase || "scenario";
+
+  const handleVote = (optionId: string) => {
+    if (currentSession) {
+      castVote(optionId);
+    } else {
+      console.log("Debug mode: Vote cast for", optionId);
+      // Update debug session to show voted status
+      const updatedSession = { ...debugSession };
+      updatedSession.players = updatedSession.players.map((p) =>
+        p.id === playerId ? { ...p, hasVoted: true } : p
+      );
+      setDebugSession(updatedSession);
+    }
   };
 
-  if (error) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold text-red-500 mb-4">{error}</h2>
-          <Button onClick={handleLeave}>Return to Home</Button>
-        </div>
-      </div>
-    );
-  }
+  const handleNextRound = () => {
+    if (currentSession) {
+      nextRound();
+    } else {
+      console.log("Debug mode: Moving to next round");
+      const updatedSession = { ...debugSession };
+      updatedSession.currentRound = updatedSession.currentRound + 1;
+      updatedSession.currentScenario = getSampleScenario();
+      // Reset voting status for all players
+      updatedSession.players = updatedSession.players.map((p) => ({
+        ...p,
+        hasVoted: false,
+      }));
+      setDebugSession(updatedSession);
+    }
+  };
 
-  if (!gameState) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold mb-4">Loading game...</h2>
-        </div>
-      </div>
-    );
-  }
+  const handleLeave = () => {
+    if (currentSession) {
+      leaveSession();
+    } else {
+      navigate("/");
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-background p-4">
-      <div className="max-w-4xl mx-auto space-y-8">
-        <div className="flex justify-between items-center">
-          <h1 className="text-3xl font-bold">Game Session</h1>
-          <Button variant="outline" onClick={handleLeave}>
-            Leave Game
-          </Button>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-4">
-            <h2 className="text-xl font-semibold">Current Scenario</h2>
-            <div className="p-4 border rounded-lg">
-              <p className="text-muted-foreground">
-                {gameState.current_scenario ||
-                  "No active scenario. Waiting for game to start..."}
-              </p>
-            </div>
+    <div className="min-h-screen w-full bg-gradient-to-b from-black to-gray-900 p-4 pb-16">
+      <div className="max-w-6xl mx-auto">
+        {/* Header */}
+        <header className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <h1 className="text-3xl font-bold neon-glow">Project Oversight</h1>
+            <p className="text-gray-400">
+              Round {currentRound} •{" "}
+              {currentGamePhase === "scenario"
+                ? "New Crisis"
+                : currentGamePhase === "voting"
+                ? "Council Vote"
+                : "Resolution"}
+            </p>
+            {!currentSession && (
+              <div className="text-neon-pink text-xs mt-1">Debug Mode</div>
+            )}
           </div>
 
-          <div className="space-y-4">
-            <h2 className="text-xl font-semibold">Resources</h2>
-            <div className="p-4 border rounded-lg space-y-2">
-              <div className="flex justify-between">
-                <span>Public Trust</span>
-                <span>{gameState.resources.trust}%</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Budget</span>
-                <span>${gameState.resources.economy * 10000}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Tech Level</span>
-                <span>{gameState.resources.tech}%</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Manpower</span>
-                <span>{gameState.resources.manpower}%</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Happiness</span>
-                <span>{gameState.resources.happiness}%</span>
-              </div>
-            </div>
+          <div className="flex gap-4">
+            <Button variant="outline" size="sm">
+              Game Rules
+            </Button>
+            <Button variant="ghost" size="sm" onClick={handleLeave}>
+              Exit Game
+            </Button>
           </div>
-        </div>
+        </header>
 
-        <div className="space-y-4">
-          <h2 className="text-xl font-semibold">Players</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {Object.values(gameState.players).map((player) => (
-              <div
-                key={player.id}
-                className={`p-4 border rounded-lg ${
-                  player.id === playerId ? "border-primary" : ""
-                } ${player.is_eliminated ? "opacity-50" : ""}`}
-              >
-                <div className="font-medium">{player.name}</div>
-                <div className="text-sm text-muted-foreground">
-                  {player.role}
-                </div>
-                {player.has_voted && (
-                  <div className="text-xs text-green-500 mt-1">Voted</div>
-                )}
-                {player.is_eliminated && (
-                  <div className="text-xs text-red-500 mt-1">Eliminated</div>
-                )}
-              </div>
+        {/* Resources Dashboard */}
+        <div className="glass-panel p-4 mb-8 animate-fade-in">
+          <h2 className="text-lg font-semibold mb-4">Resource Dashboard</h2>
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            {resources.map((resource) => (
+              <ResourceBar
+                key={resource.type}
+                type={resource.type}
+                value={resource.value}
+                maxValue={resource.maxValue}
+              />
             ))}
+          </div>
+        </div>
+
+        {/* Main Game Area */}
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          {/* Left column - Scenario */}
+          <div className="lg:col-span-3">
+            {currentGamePhase === "scenario" && (
+              <ScenarioDisplay
+                title={currentScenario.title}
+                description={currentScenario.description}
+                round={currentRound}
+                consequences={currentScenario.consequences}
+              />
+            )}
+
+            {currentGamePhase === "voting" && (
+              <VotingPanel
+                options={currentScenario.options}
+                timeRemaining={60}
+                onVote={handleVote}
+              />
+            )}
+
+            {currentGamePhase === "results" && (
+              <div className="glass-panel p-6 animate-fade-in">
+                <h2 className="text-2xl font-bold mb-4 neon-glow">Results</h2>
+                <p className="text-gray-300 mb-6">
+                  The council has decided to allocate resources to decode the
+                  signal without responding yet.
+                </p>
+
+                <div className="p-4 border border-neon-pink rounded-md bg-neon-pink bg-opacity-5 mb-6">
+                  <h3 className="font-semibold text-neon-pink mb-2">Outcome</h3>
+                  <p className="text-sm text-gray-300">
+                    Your scientists make significant progress in decoding the
+                    signal. It appears to contain complex schematics for what
+                    could be an advanced propulsion system. Tech resources have
+                    increased, but public rumors about the signal have caused a
+                    minor decrease in happiness.
+                  </p>
+                </div>
+
+                <div className="flex justify-end">
+                  <Button onClick={handleNextRound} glow>
+                    Next Round
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Right column - Players and Secret Objective */}
+          <div className="space-y-6">
+            <div className="glass-panel p-4 animate-fade-in">
+              <h2 className="text-lg font-semibold mb-4">Council Members</h2>
+              <div className="space-y-3">
+                {players.map((player) => (
+                  <div
+                    key={player.id}
+                    className={cn(
+                      "flex items-center justify-between p-2 rounded",
+                      player.isEliminated ? "opacity-50" : "",
+                      player.hasVoted ? "bg-secondary" : "bg-transparent"
+                    )}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-sm">
+                        {player.name.charAt(0)}
+                      </div>
+                      <span
+                        className={player.isEliminated ? "line-through" : ""}
+                      >
+                        {player.name}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center">
+                      {player.hasVoted && (
+                        <span className="text-xs px-2 py-1 bg-neon-pink bg-opacity-20 text-neon-pink rounded-full">
+                          Voted
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {secretObjective && (
+              <div className="glass-panel p-4 animate-fade-in border border-neon-pink">
+                <h2 className="text-lg font-semibold mb-2 text-neon-pink">
+                  Secret Objective
+                </h2>
+                <p className="text-sm text-gray-300 mb-3">
+                  {secretObjective.description}
+                </p>
+                <div className="flex items-center justify-between text-xs text-gray-400">
+                  <span>Progress</span>
+                  <span>
+                    {secretObjective.progress}/{secretObjective.target} rounds
+                  </span>
+                </div>
+                <div className="progress-bar mt-1">
+                  <div
+                    className="progress-bar-fill bg-neon-pink"
+                    style={{
+                      width: `${
+                        (secretObjective.progress / secretObjective.target) *
+                        100
+                      }%`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
     </div>
   );
-}
+};
+
+export default Game;

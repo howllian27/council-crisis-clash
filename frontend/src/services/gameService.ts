@@ -263,15 +263,30 @@ export const gameService = {
         `http://localhost:8000/api/games/${sessionId}/start`,
         {
           method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          mode: "cors",
         }
       );
 
+      console.log("Response status:", response.status);
+      const responseText = await response.text();
+      console.log("Response text:", responseText);
+
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || "Failed to start game");
+        throw new Error(`Failed to start game: ${responseText}`);
       }
 
-      const data = await response.json();
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        console.error("Error parsing response:", e);
+        throw new Error("Invalid response from server");
+      }
+
       console.log("Game started successfully:", data);
       return data;
     } catch (error) {
@@ -356,9 +371,11 @@ export const gameService = {
           table: "games",
           filter: `session_id=eq.${sessionId}`,
         },
-        (payload) => {
+        async (payload) => {
           console.log("Received game state update:", payload);
-          callback(payload.new as GameState);
+          // Fetch complete game state to ensure we have all latest data
+          const updatedState = await this.getGameState(sessionId);
+          callback(updatedState);
         }
       )
       .subscribe();
@@ -374,10 +391,11 @@ export const gameService = {
           table: "players",
           filter: `session_id=eq.${sessionId}`,
         },
-        (payload) => {
+        async (payload) => {
           console.log("Received player update:", payload);
-          // Fetch updated game state to include new player data
-          this.getGameState(sessionId).then(callback);
+          // Fetch complete game state to ensure we have all latest data
+          const updatedState = await this.getGameState(sessionId);
+          callback(updatedState);
         }
       )
       .subscribe();
@@ -393,10 +411,31 @@ export const gameService = {
           table: "resources",
           filter: `session_id=eq.${sessionId}`,
         },
-        (payload) => {
+        async (payload) => {
           console.log("Received resource update:", payload);
-          // Fetch updated game state to include new resource data
-          this.getGameState(sessionId).then(callback);
+          // Fetch complete game state to ensure we have all latest data
+          const updatedState = await this.getGameState(sessionId);
+          callback(updatedState);
+        }
+      )
+      .subscribe();
+
+    // Subscribe to secret incentives changes
+    const incentiveSubscription = supabase
+      .channel(`incentives:${sessionId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "secret_incentives",
+          filter: `session_id=eq.${sessionId}`,
+        },
+        async (payload) => {
+          console.log("Received incentive update:", payload);
+          // Fetch complete game state to ensure we have all latest data
+          const updatedState = await this.getGameState(sessionId);
+          callback(updatedState);
         }
       )
       .subscribe();
@@ -407,6 +446,7 @@ export const gameService = {
         gameSubscription.unsubscribe();
         playerSubscription.unsubscribe();
         resourceSubscription.unsubscribe();
+        incentiveSubscription.unsubscribe();
       },
     };
   },
