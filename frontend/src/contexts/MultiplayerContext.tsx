@@ -31,6 +31,28 @@ interface GameSession {
   currentRound: number;
   phase: string;
   currentScenario: Scenario;
+  roundStartTime: number;
+}
+
+interface Player {
+  id: string;
+  name: string;
+  hasVoted: boolean;
+}
+
+interface Resource {
+  id: string;
+  name: string;
+  value: number;
+}
+
+interface GameState {
+  players: Player[];
+  resources: Resource[];
+  currentRound: number;
+  phase: string;
+  currentScenario: Scenario;
+  roundStartTime: number;
 }
 
 interface MultiplayerContextType {
@@ -205,6 +227,7 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
               currentRound: gameState.current_round,
               phase: gameState.phase,
               currentScenario,
+              roundStartTime: gameState.roundStartTime || Date.now(),
             };
           });
         }
@@ -280,6 +303,7 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
             },
           ],
         },
+        roundStartTime: Date.now(),
       });
 
       setIsConnected(true);
@@ -378,6 +402,7 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
             },
           ],
         },
+        roundStartTime: Date.now(),
       });
 
       setIsConnected(true);

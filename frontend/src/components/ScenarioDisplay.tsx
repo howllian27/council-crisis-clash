@@ -14,6 +14,7 @@ interface ScenarioDisplayProps {
   onVote?: (optionId: string) => void;
   timeLimit?: number;
   hasVoted?: boolean;
+  roundStartTime?: number; // Unix timestamp in milliseconds
 }
 
 const ScenarioDisplay: React.FC<ScenarioDisplayProps> = ({
@@ -26,19 +27,35 @@ const ScenarioDisplay: React.FC<ScenarioDisplayProps> = ({
   onVote,
   timeLimit = 60,
   hasVoted = false,
+  roundStartTime,
 }) => {
   const [timeLeft, setTimeLeft] = useState(timeLimit);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
 
   useEffect(() => {
     if (timeLeft > 0 && !hasVoted) {
+      // Calculate time left based on server start time
+      const calculateTimeLeft = () => {
+        if (!roundStartTime) return timeLimit;
+        const elapsed = (Date.now() - roundStartTime) / 1000; // Convert to seconds
+        return Math.max(0, timeLimit - Math.floor(elapsed));
+      };
+
+      // Initial calculation
+      setTimeLeft(calculateTimeLeft());
+
+      // Update every second
       const timer = setInterval(() => {
-        setTimeLeft((prev) => prev - 1);
+        const remaining = calculateTimeLeft();
+        setTimeLeft(remaining);
+        if (remaining <= 0) {
+          clearInterval(timer);
+        }
       }, 1000);
 
       return () => clearInterval(timer);
     }
-  }, [timeLeft, hasVoted]);
+  }, [timeLeft, hasVoted, roundStartTime, timeLimit]);
 
   const handleOptionClick = (optionId: string) => {
     if (!hasVoted && onVote) {

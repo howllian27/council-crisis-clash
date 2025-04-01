@@ -240,6 +240,7 @@ const Game = () => {
                   options={currentScenario.options}
                   onVote={handleVote}
                   hasVoted={currentPlayer?.hasVoted}
+                  roundStartTime={session.roundStartTime}
                   className="mb-8"
                 />
               </>

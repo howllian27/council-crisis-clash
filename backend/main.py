@@ -258,4 +258,14 @@ async def update_player(session_id: str, player_id: str, request: Request):
 
 if __name__ == "__main__":
     import uvicorn
+    import socket
+    hostname = socket.gethostname()
+    local_ip = socket.gethostbyname(hostname)
+    print(f"\nServer starting...")
+    print(f"Hostname: {hostname}")
+    print(f"Local IP: {local_ip}")
+    print(f"Access the API at:")
+    print(f"- Local: http://localhost:8000")
+    print(f"- Network: http://{local_ip}:8000")
+    print(f"- All interfaces: http://0.0.0.0:8000\n")
     uvicorn.run(app, host="0.0.0.0", port=8000) 
