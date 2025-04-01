@@ -208,7 +208,21 @@ async def start_game(session_id: str):
             logger.error(f"Not enough players to start game. Current players: {len(game.players)}")
             raise HTTPException(status_code=400, detail="Need at least 2 players to start")
         
-        logger.info(f"Updating game phase to SCENARIO for session_id: {session_id}")
+        # Set initial scenario
+        initial_scenario = {
+            "title": "Mysterious Signal From Deep Space",
+            "description": "Our deep space monitoring stations have detected an unusual signal originating from beyond our solar system. Initial analysis suggests it could be artificial in nature. The signal appears to contain complex mathematical sequences that our scientists believe may be an attempt at communication. However, there is no consensus on whether we should respond or what the message might contain.",
+            "consequences": "How we handle this situation could dramatically affect our technological development and potentially our safety if the signal represents a threat.",
+            "options": [
+                {"id": "option1", "text": "Allocate resources to decode the signal but do not respond yet"},
+                {"id": "option2", "text": "Immediately broadcast a response using similar mathematical principles"},
+                {"id": "option3", "text": "Ignore the signal and increase our defensive capabilities"},
+                {"id": "option4", "text": "Share the discovery with the public and crowdsource analysis"}
+            ]
+        }
+        
+        logger.info(f"Setting initial scenario: {initial_scenario}")
+        game.current_scenario = initial_scenario
         game.phase = GamePhase.SCENARIO
         await game.save()
         

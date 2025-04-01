@@ -3,11 +3,40 @@ import { useNavigate } from "react-router-dom";
 import { useToast } from "../hooks/use-toast";
 import { gameService } from "../services/gameService";
 import { v4 as uuidv4 } from "uuid";
+import { Scenario } from "../services/gameService";
+
+interface GameSession {
+  session_id: string;
+  host_id: string;
+  code: string;
+  players: Array<{
+    id: string;
+    name: string;
+    role: string;
+    isReady: boolean;
+    hasVoted: boolean;
+    isEliminated: boolean;
+    secretObjective: {
+      description: string;
+      isCompleted: boolean;
+      progress: number;
+      target: number;
+    };
+  }>;
+  resources: Array<{
+    type: string;
+    value: number;
+    maxValue: number;
+  }>;
+  currentRound: number;
+  phase: string;
+  currentScenario: Scenario;
+}
 
 interface MultiplayerContextType {
   playerId: string | null;
   playerName: string | null;
-  currentSession: any | null;
+  currentSession: GameSession | null;
   gamePhase: string;
   isConnected: boolean;
   isLoading: boolean;
@@ -31,12 +60,16 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
 }) => {
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [playerName, setPlayerName] = useState<string | null>(null);
-  const [currentSession, setCurrentSession] = useState<any | null>(null);
+  const [currentSession, setCurrentSession] = useState<GameSession | null>(
+    null
+  );
   const [gamePhase, setGamePhase] = useState<string>("lobby");
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [subscription, setSubscription] = useState<any>(null);
+  const [subscription, setSubscription] = useState<{
+    unsubscribe: () => void;
+  } | null>(null);
 
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -72,19 +105,26 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
         currentSession.session_id,
         (gameState) => {
           console.log("Received game state update:", gameState);
-          setCurrentSession((prev) => {
-            console.log("Previous state:", prev);
-            console.log("New phase:", gameState.phase);
+          console.log("Current session phase:", currentSession.phase);
+          console.log("New game state phase:", gameState.phase);
 
-            // If game phase changes from lobby to scenario, navigate to game page
-            if (gameState.phase === "scenario" && prev?.phase === "lobby") {
-              console.log(
-                "Phase changed from lobby to scenario, navigating to game page"
-              );
+          // Check phase change before updating state
+          if (gameState.phase === "scenario") {
+            console.log(
+              "Game phase is scenario, checking if navigation needed"
+            );
+            if (currentSession.phase !== "scenario") {
+              console.log("Phase changed to scenario, navigating to game page");
               navigate(
                 `/game?sessionId=${currentSession.session_id}&playerId=${playerId}`
               );
+              return; // Exit early to prevent state update
             }
+          }
+
+          setCurrentSession((prev) => {
+            console.log("Previous state:", prev);
+            console.log("New phase:", gameState.phase);
 
             // Convert the game state to match our expected format
             const players = Object.values(gameState.players).map((player) => ({
@@ -126,37 +166,42 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
               },
             ];
 
+            // Get the current scenario from game state or use a default
+            const currentScenario = gameState.current_scenario || {
+              title: "Mysterious Signal From Deep Space",
+              description:
+                "Our deep space monitoring stations have detected an unusual signal originating from beyond our solar system. Initial analysis suggests it could be artificial in nature. The signal appears to contain complex mathematical sequences that our scientists believe may be an attempt at communication. However, there is no consensus on whether we should respond or what the message might contain.",
+              consequences:
+                "How we handle this situation could dramatically affect our technological development and potentially our safety if the signal represents a threat.",
+              options: [
+                {
+                  id: "option1",
+                  text: "Allocate resources to decode the signal but do not respond yet",
+                },
+                {
+                  id: "option2",
+                  text: "Immediately broadcast a response using similar mathematical principles",
+                },
+                {
+                  id: "option3",
+                  text: "Ignore the signal and increase our defensive capabilities",
+                },
+                {
+                  id: "option4",
+                  text: "Share the discovery with the public and crowdsource analysis",
+                },
+              ],
+            };
+
+            console.log("Setting current scenario:", currentScenario);
+
             return {
               ...prev,
               players,
               resources,
               currentRound: gameState.current_round,
               phase: gameState.phase,
-              currentScenario: {
-                title: "Mysterious Signal From Deep Space",
-                description:
-                  "Our deep space monitoring stations have detected an unusual signal originating from beyond our solar system. Initial analysis suggests it could be artificial in nature. The signal appears to contain complex mathematical sequences that our scientists believe may be an attempt at communication. However, there is no consensus on whether we should respond or what the message might contain.",
-                consequences:
-                  "How we handle this situation could dramatically affect our technological development and potentially our safety if the signal represents a threat.",
-                options: [
-                  {
-                    id: "option1",
-                    text: "Allocate resources to decode the signal but do not respond yet",
-                  },
-                  {
-                    id: "option2",
-                    text: "Immediately broadcast a response using similar mathematical principles",
-                  },
-                  {
-                    id: "option3",
-                    text: "Ignore the signal and increase our defensive capabilities",
-                  },
-                  {
-                    id: "option4",
-                    text: "Share the discovery with the public and crowdsource analysis",
-                  },
-                ],
-              },
+              currentScenario,
             };
           });
         }
@@ -181,6 +226,7 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
         session_id: response.session_id,
         host_id: response.host_id,
         code: response.session_id,
+        phase: "lobby",
         players: [
           {
             id: response.host_id,
@@ -269,6 +315,7 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
         session_id: sessionId,
         host_id: response.host_id,
         code: sessionId,
+        phase: gameState.phase || "lobby",
         players: Object.values(gameState.players).map((player) => ({
           id: player.id,
           name: player.name,
@@ -303,7 +350,7 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
           { type: "trust", value: gameState.resources.trust, maxValue: 100 },
         ],
         currentRound: gameState.current_round,
-        currentScenario: {
+        currentScenario: gameState.current_scenario || {
           title: "Mysterious Signal From Deep Space",
           description:
             "Our deep space monitoring stations have detected an unusual signal originating from beyond our solar system. Initial analysis suggests it could be artificial in nature. The signal appears to contain complex mathematical sequences that our scientists believe may be an attempt at communication. However, there is no consensus on whether we should respond or what the message might contain.",

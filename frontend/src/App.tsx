@@ -29,7 +29,6 @@ const App = () => (
           </Routes>
         </MultiplayerProvider>
       </BrowserRouter>
-      <WebSocketTest />
     </TooltipProvider>
   </QueryClientProvider>
 );

@@ -46,10 +46,20 @@ try {
   throw error;
 }
 
+export interface Scenario {
+  title: string;
+  description: string;
+  consequences: string;
+  options: Array<{
+    id: string;
+    text: string;
+  }>;
+}
+
 export interface GameState {
   id: string;
   current_round: number;
-  current_scenario: string;
+  current_scenario: Scenario | null;
   phase: string;
   is_active: boolean;
   players: {
@@ -310,6 +320,21 @@ export const gameService = {
         throw gameError;
       }
 
+      // Parse the current_scenario if it exists
+      let parsedScenario = null;
+      if (gameData.current_scenario) {
+        try {
+          parsedScenario =
+            typeof gameData.current_scenario === "string"
+              ? JSON.parse(gameData.current_scenario)
+              : gameData.current_scenario;
+          console.log("Parsed scenario:", parsedScenario);
+        } catch (e) {
+          console.error("Error parsing scenario:", e);
+          parsedScenario = null;
+        }
+      }
+
       // Fetch players
       const { data: playersData, error: playersError } = await supabase
         .from("players")
@@ -336,6 +361,7 @@ export const gameService = {
       // Combine all data into game state
       const gameState: GameState = {
         ...gameData,
+        current_scenario: parsedScenario,
         players: playersData.reduce((acc, player) => {
           acc[player.id] = player;
           return acc;
