@@ -33,32 +33,23 @@ const ScenarioDisplay: React.FC<ScenarioDisplayProps> = ({
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
 
   useEffect(() => {
-    if (timeLeft > 0 && !hasVoted) {
-      // Calculate time left based on server start time
-      const calculateTimeLeft = () => {
-        if (!roundStartTime) return timeLimit;
-        const elapsed = (Date.now() - roundStartTime) / 1000; // Convert to seconds
-        return Math.max(0, timeLimit - Math.floor(elapsed));
-      };
-
-      // Initial calculation
-      setTimeLeft(calculateTimeLeft());
-
-      // Update every second
+    if (timeLeft > 0) {
       const timer = setInterval(() => {
-        const remaining = calculateTimeLeft();
-        setTimeLeft(remaining);
-        if (remaining <= 0) {
-          clearInterval(timer);
-        }
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            return 0;
+          }
+          return prev - 1;
+        });
       }, 1000);
 
       return () => clearInterval(timer);
     }
-  }, [timeLeft, hasVoted, roundStartTime, timeLimit]);
+  }, [timeLeft]);
 
   const handleOptionClick = (optionId: string) => {
-    if (!hasVoted && onVote) {
+    if (onVote) {
       setSelectedOption(optionId);
       onVote(optionId);
     }
@@ -103,18 +94,16 @@ const ScenarioDisplay: React.FC<ScenarioDisplayProps> = ({
                 key={option.id}
                 className={cn(
                   "p-4 border border-neon-pink rounded-md transition-all cursor-pointer",
-                  hasVoted
-                    ? option.id === selectedOption
-                      ? "bg-neon-pink bg-opacity-20"
-                      : "opacity-50"
+                  option.id === selectedOption
+                    ? "bg-neon-pink bg-opacity-30 border-neon-pink border-2 shadow-lg shadow-neon-pink/20"
                     : "bg-neon-pink bg-opacity-5 hover:bg-opacity-10",
-                  hasVoted && "cursor-not-allowed"
+                  timeLeft === 0 && "opacity-50 cursor-not-allowed"
                 )}
-                onClick={() => handleOptionClick(option.id)}
+                onClick={() => timeLeft > 0 && handleOptionClick(option.id)}
               >
                 <p className="text-gray-300">{option.text}</p>
-                {hasVoted && option.id === selectedOption && (
-                  <p className="text-neon-pink text-sm mt-2">Your Vote</p>
+                {option.id === selectedOption && (
+                  <p className="text-neon-pink text-sm mt-2 font-semibold">Your Vote</p>
                 )}
               </div>
             ))}

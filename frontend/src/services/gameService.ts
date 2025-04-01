@@ -92,6 +92,7 @@ export interface GameState {
       round: number;
     };
   };
+  roundStartTime?: number;
 }
 
 interface PlayerUpdate {
@@ -526,7 +527,8 @@ export const gameService = {
       const { error } = await supabase.from("votes").insert({
         session_id: sessionId,
         player_id: playerId,
-        option: option,
+        vote: option,
+        round: 1,
       });
 
       if (error) {
@@ -590,5 +592,22 @@ export const gameService = {
       console.error("Error in leaveGame:", error);
       throw error;
     }
+  },
+
+  updateGame: async (sessionId: string, updates: Partial<GameState>) => {
+    console.log("Updating game state:", { sessionId, updates });
+    const { data, error } = await supabase
+      .from("game_sessions")
+      .update(updates)
+      .eq("session_id", sessionId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error updating game state:", error);
+      throw error;
+    }
+
+    return data;
   },
 };

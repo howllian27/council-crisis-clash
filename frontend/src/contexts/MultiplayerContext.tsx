@@ -1,7 +1,13 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "../hooks/use-toast";
-import { gameService } from "../services/gameService";
+import { gameService, GameState } from "../services/gameService";
 import { v4 as uuidv4 } from "uuid";
 import { Scenario } from "../services/gameService";
 
@@ -41,18 +47,18 @@ interface Player {
 }
 
 interface Resource {
-  id: string;
-  name: string;
+  type: string;
   value: number;
+  maxValue: number;
 }
 
-interface GameState {
-  players: Player[];
-  resources: Resource[];
-  currentRound: number;
-  phase: string;
-  currentScenario: Scenario;
-  roundStartTime: number;
+interface WebSocketMessage {
+  type: string;
+  payload: {
+    results?: Record<string, string>;
+    phase?: string;
+    [key: string]: unknown;
+  };
 }
 
 interface MultiplayerContextType {
@@ -127,6 +133,29 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
         currentSession.session_id,
         (gameState) => {
           console.log("Received game state update:", gameState);
+
+          if (
+            typeof gameState === "object" &&
+            gameState !== null &&
+            "type" in gameState &&
+            "payload" in gameState
+          ) {
+            const message = gameState as unknown as WebSocketMessage;
+            if (message.type === "voting_complete") {
+              console.log("Voting complete, transitioning to results phase");
+              setGamePhase("results");
+              // Update session state with voting results
+              setCurrentSession((prev) => {
+                if (!prev) return prev;
+                return {
+                  ...prev,
+                  phase: "results",
+                  votingResults: message.payload.results,
+                };
+              });
+              return; // Exit early to prevent further state updates
+            }
+          }
 
           // Update the phase in the context first
           setGamePhase(gameState.phase);
@@ -470,24 +499,85 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
-  // Cast a vote for the current round
-  const castVote = async (optionId: string) => {
-    if (!currentSession?.session_id || !playerId) return;
+  // Add a new function to update game phase
+  const updateGamePhase = useCallback(
+    async (newPhase: string) => {
+      if (!currentSession?.session_id) return;
 
-    try {
-      await gameService.recordVote(
-        currentSession.session_id,
-        playerId,
-        optionId
-      );
-      await gameService.updatePlayer(currentSession.session_id, playerId, {
-        hasVoted: true,
-      });
-    } catch (err) {
-      console.error("Error casting vote:", err);
-      setError("Failed to cast vote. Please try again.");
-    }
-  };
+      try {
+        console.log("Updating game phase to:", newPhase);
+        await gameService.updateGame(currentSession.session_id, {
+          phase: newPhase,
+        });
+
+        // Update local state
+        setGamePhase(newPhase);
+        setCurrentSession((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            phase: newPhase,
+          };
+        });
+      } catch (error) {
+        console.error("Error updating game phase:", error);
+        toast({
+          title: "Error",
+          description: "Failed to update game phase. Please try again.",
+          variant: "destructive",
+        });
+      }
+    },
+    [currentSession?.session_id, toast]
+  );
+
+  // Update the handleTimerExpiration function
+  const handleTimerExpiration = useCallback(async () => {
+    console.log("Timer expired, transitioning to results phase");
+    await updateGamePhase("results");
+  }, [updateGamePhase]);
+
+  // Update the castVote function
+  const castVote = useCallback(
+    async (optionId: string) => {
+      if (!currentSession || !playerId) return;
+
+      try {
+        console.log("Casting vote:", { optionId, playerId });
+        await gameService.recordVote(
+          currentSession.session_id,
+          playerId,
+          optionId
+        );
+
+        // Update local state
+        setCurrentSession((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            players: prev.players.map((p) =>
+              p.id === playerId ? { ...p, hasVoted: true } : p
+            ),
+          };
+        });
+
+        // Check if all players have voted
+        const allPlayersVoted = currentSession.players.every((p) => p.hasVoted);
+        if (allPlayersVoted) {
+          console.log("All players have voted, transitioning to results phase");
+          await updateGamePhase("results");
+        }
+      } catch (error) {
+        console.error("Error casting vote:", error);
+        toast({
+          title: "Error",
+          description: "Failed to record your vote. Please try again.",
+          variant: "destructive",
+        });
+      }
+    },
+    [currentSession, playerId, updateGamePhase, toast]
+  );
 
   // Move to the next round
   const nextRound = async () => {
@@ -500,6 +590,22 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
       setError("Failed to start next round. Please try again.");
     }
   };
+
+  // Add timer expiration check
+  useEffect(() => {
+    if (currentSession?.phase === "scenario" && currentSession.roundStartTime) {
+      const checkTimer = () => {
+        const elapsed = (Date.now() - currentSession.roundStartTime) / 1000;
+        if (elapsed >= 60) {
+          // 60 seconds time limit
+          handleTimerExpiration();
+        }
+      };
+
+      const timer = setInterval(checkTimer, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [currentSession, handleTimerExpiration]);
 
   return (
     <MultiplayerContext.Provider

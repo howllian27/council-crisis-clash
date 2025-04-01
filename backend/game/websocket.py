@@ -3,6 +3,7 @@ from typing import Dict, List
 import json
 from game.state import GameManager, GameState
 from ai.scenario_generator import scenario_generator
+from datetime import datetime
 
 class GameWebSocketManager:
     def __init__(self):
@@ -88,11 +89,16 @@ class GameWebSocketManager:
                             # Check if all players have voted
                             if len(game.voting_results[round_key]) == len(game.players):
                                 # Process voting results and update game state
-                                # This is where you'd implement the voting logic
+                                game.phase = GamePhase.RESULTS
+                                game.round_end_time = datetime.now().timestamp()
+                                await game.save()
+                                
+                                # Broadcast voting results and phase change
                                 await self.broadcast_to_session({
                                     "type": "voting_complete",
                                     "payload": {
-                                        "results": game.voting_results[round_key]
+                                        "results": game.voting_results[round_key],
+                                        "phase": "results"
                                     }
                                 }, session_id)
 
