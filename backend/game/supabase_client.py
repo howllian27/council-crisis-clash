@@ -23,7 +23,7 @@ def get_game(session_id: str):
     try:
         # Select only game-specific columns from the games table
         columns = (
-            "session_id, host_id, current_round, max_rounds, is_active, phase"
+            "session_id, host_id, current_round, max_rounds, is_active, phase, current_scenario"
         )
         response = (
             supabase

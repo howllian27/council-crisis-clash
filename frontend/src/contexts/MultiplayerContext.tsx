@@ -105,66 +105,24 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
         currentSession.session_id,
         (gameState) => {
           console.log("Received game state update:", gameState);
-          console.log("Current session phase:", currentSession.phase);
-          console.log("New game state phase:", gameState.phase);
 
-          // Check phase change before updating state
-          if (gameState.phase === "scenario") {
-            console.log(
-              "Game phase is scenario, checking if navigation needed"
+          // Update the phase in the context first
+          setGamePhase(gameState.phase);
+
+          // Check if phase changed to scenario
+          if (
+            gameState.phase === "scenario" &&
+            currentSession.phase !== "scenario"
+          ) {
+            console.log("Phase changed to scenario, navigating to game page");
+            navigate(
+              `/game?sessionId=${currentSession.session_id}&playerId=${playerId}`
             );
-            if (currentSession.phase !== "scenario") {
-              console.log("Phase changed to scenario, navigating to game page");
-              navigate(
-                `/game?sessionId=${currentSession.session_id}&playerId=${playerId}`
-              );
-              return; // Exit early to prevent state update
-            }
+            return; // Exit early to prevent state update
           }
 
           setCurrentSession((prev) => {
-            console.log("Previous state:", prev);
-            console.log("New phase:", gameState.phase);
-
-            // Convert the game state to match our expected format
-            const players = Object.values(gameState.players).map((player) => ({
-              id: player.id,
-              name: player.name,
-              role: player.role,
-              isReady: true,
-              hasVoted: player.has_voted,
-              isEliminated: player.is_eliminated,
-              secretObjective: {
-                description: player.secret_incentive,
-                isCompleted: false,
-                progress: 0,
-                target: 3,
-              },
-            }));
-
-            const resources = [
-              { type: "tech", value: gameState.resources.tech, maxValue: 100 },
-              {
-                type: "manpower",
-                value: gameState.resources.manpower,
-                maxValue: 100,
-              },
-              {
-                type: "economy",
-                value: gameState.resources.economy,
-                maxValue: 100,
-              },
-              {
-                type: "happiness",
-                value: gameState.resources.happiness,
-                maxValue: 100,
-              },
-              {
-                type: "trust",
-                value: gameState.resources.trust,
-                maxValue: 100,
-              },
-            ];
+            if (!prev) return prev;
 
             // Get the current scenario from game state or use a default
             const currentScenario = gameState.current_scenario || {
@@ -193,12 +151,57 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
               ],
             };
 
-            console.log("Setting current scenario:", currentScenario);
+            console.log("MultiplayerContext Debug:", {
+              gameState,
+              currentScenario,
+              phase: gameState.phase,
+              currentSessionPhase: currentSession.phase,
+              isHost: playerId === prev.host_id,
+            });
 
             return {
               ...prev,
-              players,
-              resources,
+              players: Object.values(gameState.players).map((player) => ({
+                id: player.id,
+                name: player.name,
+                role: player.role,
+                isReady: true,
+                hasVoted: player.has_voted,
+                isEliminated: player.is_eliminated,
+                secretObjective: {
+                  description: player.secret_incentive,
+                  isCompleted: false,
+                  progress: 0,
+                  target: 3,
+                },
+              })),
+              resources: [
+                {
+                  type: "tech",
+                  value: gameState.resources.tech,
+                  maxValue: 100,
+                },
+                {
+                  type: "manpower",
+                  value: gameState.resources.manpower,
+                  maxValue: 100,
+                },
+                {
+                  type: "economy",
+                  value: gameState.resources.economy,
+                  maxValue: 100,
+                },
+                {
+                  type: "happiness",
+                  value: gameState.resources.happiness,
+                  maxValue: 100,
+                },
+                {
+                  type: "trust",
+                  value: gameState.resources.trust,
+                  maxValue: 100,
+                },
+              ],
               currentRound: gameState.current_round,
               phase: gameState.phase,
               currentScenario,
@@ -209,7 +212,7 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
 
       setSubscription(newSubscription);
     }
-  }, [currentSession?.session_id, navigate, playerId]);
+  }, [currentSession?.session_id, navigate, playerId, gamePhase]);
 
   // Create a new game session
   const createSession = async (name: string) => {

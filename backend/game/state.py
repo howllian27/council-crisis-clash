@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from pydantic import BaseModel
 from enum import Enum
 from .supabase_client import (
@@ -50,7 +50,7 @@ class GameState(BaseModel):
     }
     current_round: int = 1
     max_rounds: int = 10
-    current_scenario: Optional[str] = None
+    current_scenario: Optional[Dict[str, Any]] = None
     current_options: List[str] = []
     voting_results: Dict[str, Dict[str, str]] = {}  # round -> player_id -> vote
     is_active: bool = True

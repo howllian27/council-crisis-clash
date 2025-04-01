@@ -24,108 +24,106 @@ const Game = () => {
 
   // Debug mode state to bypass session check for direct navigation
   const [debugSession, setDebugSession] = useState(null);
+  const [debugMode] = useState(import.meta.env.DEV);
+
+  // Add debug logging for gamePhase
+  console.log("Game Phase Value:", {
+    gamePhase,
+    currentGamePhase: gamePhase || "scenario",
+  });
+
+  // Set game phase based on session state
+  const currentGamePhase = gamePhase || "scenario";
 
   // Initialize a debug session if navigating directly to /game
   useEffect(() => {
-    if (!currentSession && !debugSession) {
-      // Check if we're in development mode (for debugging only)
-      if (import.meta.env.DEV) {
-        console.log("Debug mode: Creating sample session for direct game view");
-        // Create a sample session for debugging purposes
-        const sampleSession = createGameSession("Debug Player");
-        sampleSession.currentScenario = getSampleScenario();
-        sampleSession.status = "in-progress";
-        // Add some sample players for testing
-        sampleSession.players = [
+    if (debugMode && !currentSession) {
+      console.log("Debug mode: Creating sample game session");
+      const sampleSession = {
+        session_id: "debug-session",
+        host_id: "debug-host",
+        code: "DEBUG",
+        phase: "scenario",
+        players: [
           {
-            id: "1",
-            name: "Debug Player",
+            id: "debug-host",
+            name: "Debug Host",
             role: "Council Leader",
             isReady: true,
             hasVoted: false,
             isEliminated: false,
             secretObjective: {
-              description:
-                "Ensure the 'trust' resource stays above 60% for 3 rounds",
+              description: "Debug objective",
               isCompleted: false,
               progress: 0,
               target: 3,
             },
           },
-          {
-            id: "2",
-            name: "Player 2",
-            role: "Council Member",
-            isReady: true,
-            hasVoted: false,
-            isEliminated: false,
-            secretObjective: {
-              description:
-                "Keep the 'economy' resource above 70% for the next 2 rounds",
-              isCompleted: false,
-              progress: 0,
-              target: 3,
+        ],
+        resources: [
+          { type: "tech", value: 75, maxValue: 100 },
+          { type: "manpower", value: 60, maxValue: 100 },
+          { type: "economy", value: 80, maxValue: 100 },
+          { type: "happiness", value: 90, maxValue: 100 },
+          { type: "trust", value: 70, maxValue: 100 },
+        ],
+        currentRound: 1,
+        currentScenario: {
+          title: "Mysterious Signal From Deep Space",
+          description:
+            "Our deep space monitoring stations have detected an unusual signal originating from beyond our solar system. Initial analysis suggests it could be artificial in nature. The signal appears to contain complex mathematical sequences that our scientists believe may be an attempt at communication. However, there is no consensus on whether we should respond or what the message might contain.",
+          consequences:
+            "How we handle this situation could dramatically affect our technological development and potentially our safety if the signal represents a threat.",
+          options: [
+            {
+              id: "option1",
+              text: "Allocate resources to decode the signal but do not respond yet",
             },
-          },
-          {
-            id: "3",
-            name: "Player 3",
-            role: "Council Member",
-            isReady: true,
-            hasVoted: false,
-            isEliminated: false,
-            secretObjective: {
-              description:
-                "Ensure the 'tech' resource drops below 40% at least once",
-              isCompleted: false,
-              progress: 0,
-              target: 3,
+            {
+              id: "option2",
+              text: "Immediately broadcast a response using similar mathematical principles",
             },
-          },
-          {
-            id: "4",
-            name: "Player 4",
-            role: "Council Member",
-            isReady: true,
-            hasVoted: false,
-            isEliminated: false,
-            secretObjective: {
-              description:
-                "Ensure the 'happiness' resource stays balanced between 40-60%",
-              isCompleted: false,
-              progress: 0,
-              target: 3,
+            {
+              id: "option3",
+              text: "Ignore the signal and increase our defensive capabilities",
             },
-          },
-        ];
-        setDebugSession(sampleSession);
-      } else {
-        // In production, redirect to home
-        navigate("/");
-      }
+            {
+              id: "option4",
+              text: "Share the discovery with the public and crowdsource analysis",
+            },
+          ],
+        },
+      };
+      setDebugSession(sampleSession);
     }
-  }, [currentSession, navigate, debugSession]);
+  }, [debugMode, currentSession]);
 
-  // Use currentSession if available, otherwise use debugSession
-  const activeSession = currentSession || debugSession;
+  // Use either the current session or debug session
+  const session = currentSession || debugSession;
 
-  if (!activeSession) {
-    return <div>Loading...</div>;
+  if (!session) {
+    return <div>Error: No active session</div>;
   }
 
-  const { players, resources, currentRound, currentScenario } = activeSession;
-
   // Find current player
-  const currentPlayer = players.find((p) => p.id === playerId) || players[0]; // Fallback to first player in debug mode
-  const secretObjective = currentPlayer?.secretObjective;
+  const currentPlayer = session.players.find((p) => p.id === playerId);
 
+  const currentScenario = session.currentScenario;
   if (!currentScenario) {
     return <div>Error: No scenario available</div>;
   }
 
-  // Set game phase based on session state
-  const currentGamePhase = gamePhase || "scenario";
+  // Debug logging for scenario data
+  console.log("Current Scenario Data:", {
+    title: currentScenario.title,
+    description: currentScenario.description,
+    consequences: currentScenario.consequences,
+    options: currentScenario.options,
+    round: session.currentRound,
+    phase: currentGamePhase,
+  });
 
+  // Handle vote submission
   const handleVote = (optionId: string) => {
     if (currentSession) {
       castVote(optionId);
@@ -173,12 +171,12 @@ const Game = () => {
           <div>
             <h1 className="text-3xl font-bold neon-glow">Project Oversight</h1>
             <p className="text-gray-400">
-              Round {currentRound} •{" "}
+              Round {session.currentRound} •{" "}
               {currentGamePhase === "scenario"
-                ? "New Crisis"
-                : currentGamePhase === "voting"
-                ? "Council Vote"
-                : "Resolution"}
+                ? "Council Decision"
+                : currentGamePhase === "results"
+                ? "Resolution"
+                : "Lobby"}
             </p>
             {!currentSession && (
               <div className="text-neon-pink text-xs mt-1">Debug Mode</div>
@@ -199,7 +197,7 @@ const Game = () => {
         <div className="glass-panel p-4 mb-8 animate-fade-in">
           <h2 className="text-lg font-semibold mb-4">Resource Dashboard</h2>
           <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-            {resources.map((resource) => (
+            {session.resources.map((resource) => (
               <ResourceBar
                 key={resource.type}
                 type={resource.type}
@@ -214,21 +212,37 @@ const Game = () => {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Left column - Scenario */}
           <div className="lg:col-span-3">
+            {(() => {
+              console.log("Game Phase Debug:", {
+                currentGamePhase,
+                isScenarioPhase: currentGamePhase === "scenario",
+                currentScenario: !!currentScenario,
+              });
+              return null;
+            })()}
             {currentGamePhase === "scenario" && (
-              <ScenarioDisplay
-                title={currentScenario.title}
-                description={currentScenario.description}
-                round={currentRound}
-                consequences={currentScenario.consequences}
-              />
-            )}
-
-            {currentGamePhase === "voting" && (
-              <VotingPanel
-                options={currentScenario.options}
-                timeRemaining={60}
-                onVote={handleVote}
-              />
+              <>
+                {(() => {
+                  console.log("Current Scenario Data:", {
+                    title: currentScenario.title,
+                    description: currentScenario.description,
+                    round: session.currentRound,
+                    consequences: currentScenario.consequences,
+                    fullScenario: currentScenario,
+                  });
+                  return null;
+                })()}
+                <ScenarioDisplay
+                  title={currentScenario.title}
+                  description={currentScenario.description}
+                  round={session.currentRound}
+                  consequences={currentScenario.consequences}
+                  options={currentScenario.options}
+                  onVote={handleVote}
+                  hasVoted={currentPlayer?.hasVoted}
+                  className="mb-8"
+                />
+              </>
             )}
 
             {currentGamePhase === "results" && (
@@ -264,7 +278,7 @@ const Game = () => {
             <div className="glass-panel p-4 animate-fade-in">
               <h2 className="text-lg font-semibold mb-4">Council Members</h2>
               <div className="space-y-3">
-                {players.map((player) => (
+                {session.players.map((player) => (
                   <div
                     key={player.id}
                     className={cn(
@@ -296,18 +310,19 @@ const Game = () => {
               </div>
             </div>
 
-            {secretObjective && (
+            {currentPlayer?.secretObjective && (
               <div className="glass-panel p-4 animate-fade-in border border-neon-pink">
                 <h2 className="text-lg font-semibold mb-2 text-neon-pink">
                   Secret Objective
                 </h2>
                 <p className="text-sm text-gray-300 mb-3">
-                  {secretObjective.description}
+                  {currentPlayer.secretObjective.description}
                 </p>
                 <div className="flex items-center justify-between text-xs text-gray-400">
                   <span>Progress</span>
                   <span>
-                    {secretObjective.progress}/{secretObjective.target} rounds
+                    {currentPlayer.secretObjective.progress}/
+                    {currentPlayer.secretObjective.target} rounds
                   </span>
                 </div>
                 <div className="progress-bar mt-1">
@@ -315,7 +330,8 @@ const Game = () => {
                     className="progress-bar-fill bg-neon-pink"
                     style={{
                       width: `${
-                        (secretObjective.progress / secretObjective.target) *
+                        (currentPlayer.secretObjective.progress /
+                          currentPlayer.secretObjective.target) *
                         100
                       }%`,
                     }}

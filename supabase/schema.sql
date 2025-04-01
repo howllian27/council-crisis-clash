@@ -6,7 +6,7 @@ CREATE TABLE games (
     current_round INTEGER DEFAULT 1,
     max_rounds INTEGER DEFAULT 10,
     is_active BOOLEAN DEFAULT true,
-    current_scenario TEXT,
+    current_scenario JSONB,
     phase TEXT DEFAULT 'lobby',
     elimination_target TEXT,
     round_start_time TIMESTAMP WITH TIME ZONE,

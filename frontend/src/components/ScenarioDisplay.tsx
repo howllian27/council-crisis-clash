@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { cn } from "../lib/utils";
 
 interface ScenarioDisplayProps {
@@ -6,59 +6,102 @@ interface ScenarioDisplayProps {
   description: string;
   round: number;
   consequences?: string;
+  options?: Array<{
+    id: string;
+    text: string;
+  }>;
   className?: string;
+  onVote?: (optionId: string) => void;
+  timeLimit?: number;
+  hasVoted?: boolean;
 }
 
-const ScenarioDisplay = ({
+const ScenarioDisplay: React.FC<ScenarioDisplayProps> = ({
   title,
   description,
   round,
   consequences,
+  options,
   className,
-}: ScenarioDisplayProps) => {
-  // Use placeholder text if no title is provided
-  const displayTitle = title || "Mysterious Signal From Deep Space";
-  const displayDescription =
-    description ||
-    "Our deep space monitoring stations have detected an unusual signal originating from beyond our solar system. Initial analysis suggests it could be artificial in nature. The signal appears to contain complex mathematical sequences that our scientists believe may be an attempt at communication. However, there is no consensus on whether we should respond or what the message might contain.";
-  const displayConsequences =
-    consequences ||
-    "How we handle this situation could dramatically affect our technological development and potentially our safety if the signal represents a threat.";
+  onVote,
+  timeLimit = 60,
+  hasVoted = false,
+}) => {
+  const [timeLeft, setTimeLeft] = useState(timeLimit);
+  const [selectedOption, setSelectedOption] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (timeLeft > 0 && !hasVoted) {
+      const timer = setInterval(() => {
+        setTimeLeft((prev) => prev - 1);
+      }, 1000);
+
+      return () => clearInterval(timer);
+    }
+  }, [timeLeft, hasVoted]);
+
+  const handleOptionClick = (optionId: string) => {
+    if (!hasVoted && onVote) {
+      setSelectedOption(optionId);
+      onVote(optionId);
+    }
+  };
 
   return (
-    <div
-      className={cn(
-        "glass-panel p-6 animate-fade-in bg-black/30 backdrop-blur-sm",
-        className
-      )}
-    >
-      <div className="mb-2 flex items-center justify-between">
-        <div className="px-2 py-1 bg-secondary rounded text-xs font-semibold text-white">
-          ROUND {round}
-        </div>
-        {displayConsequences && (
-          <div className="px-2 py-1 bg-neon-pink bg-opacity-20 text-neon-pink rounded text-xs font-semibold">
-            CRISIS EVENT
+    <div className={cn("glass-panel p-6 animate-fade-in", className)}>
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold mb-2 neon-glow">{title}</h2>
+        <p className="text-sm text-gray-400 mb-4">Round {round}</p>
+        <p className="text-gray-300 mb-4">{description}</p>
+        {consequences && (
+          <div className="p-4 border border-neon-pink rounded-md bg-neon-pink bg-opacity-5">
+            <h3 className="font-semibold text-neon-pink mb-2">Consequences</h3>
+            <p className="text-sm text-gray-300">{consequences}</p>
           </div>
         )}
       </div>
 
-      <h2 className="text-2xl font-bold mb-4 text-white neon-glow">
-        {displayTitle}
-      </h2>
-
-      <div className="prose prose-invert max-w-none mb-6">
-        <p className="text-gray-300 leading-relaxed text-lg">
-          {displayDescription}
-        </p>
+      {/* Timer Bar */}
+      <div className="mb-6">
+        <div className="flex justify-between text-sm text-gray-400 mb-2">
+          <span>Time Remaining</span>
+          <span>{timeLeft}s</span>
+        </div>
+        <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-neon-pink transition-all duration-1000 ease-linear"
+            style={{ width: `${(timeLeft / timeLimit) * 100}%` }}
+          />
+        </div>
       </div>
 
-      {displayConsequences && (
-        <div className="mt-4 p-4 border border-neon-pink rounded-md bg-neon-pink bg-opacity-5">
-          <h3 className="font-semibold text-neon-pink mb-2">
-            Potential Consequences
+      {options && options.length > 0 && (
+        <div className="space-y-4">
+          <h3 className="text-lg font-semibold text-neon-pink">
+            Available Options
           </h3>
-          <p className="text-sm text-gray-300">{displayConsequences}</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {options.map((option) => (
+              <div
+                key={option.id}
+                className={cn(
+                  "p-4 border border-neon-pink rounded-md transition-all cursor-pointer",
+                  hasVoted
+                    ? option.id === selectedOption
+                      ? "bg-neon-pink bg-opacity-20"
+                      : "opacity-50"
+                    : "bg-neon-pink bg-opacity-5 hover:bg-opacity-10",
+                  hasVoted && "cursor-not-allowed"
+                )}
+                onClick={() => handleOptionClick(option.id)}
+              >
+                <p className="text-gray-300">{option.text}</p>
+                {hasVoted && option.id === selectedOption && (
+                  <p className="text-neon-pink text-sm mt-2">Your Vote</p>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
