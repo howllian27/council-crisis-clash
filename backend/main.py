@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict
 import uuid
 from game.state import GameState, Player, GamePhase
-from game.supabase_client import supabase, get_game, get_players, add_player, update_player
+from game.supabase_client import supabase, get_game, get_players, add_player, update_player, get_votes
 from datetime import datetime, timedelta
 from ai.scenario_generator import scenario_generator
 import json
@@ -521,36 +521,77 @@ async def get_voting_options(session_id: str):
         game.current_scenario = current_scenario
         await game.save()
         
-        # Start the timer since we have both scenario and options
-        if not game.timer_running:
-            # Set timer end time to 60 seconds from now
-            end_time = datetime.utcnow().replace(tzinfo=None) + timedelta(seconds=60)
-            
-            # Update timer state in Supabase
-            result = supabase.table("games").update({
-                "timer_end_time": end_time.isoformat(),
-                "timer_running": True,
-                "updated_at": datetime.utcnow().replace(tzinfo=None).isoformat()
-            }).eq("session_id", session_id).execute()
-            
-            if not result.data:
-                logger.error(f"Failed to update timer in Supabase: {result}")
-                raise HTTPException(status_code=500, detail="Failed to update timer in database")
-                
-            # Update local game state
-            game.timer_end_time = end_time
-            game.timer_running = True
-            await game.save()
-            
-            # Start the timer check task
-            if session_id not in timer_tasks or timer_tasks[session_id].done():
-                timer_tasks[session_id] = asyncio.create_task(check_timer(session_id))
-        
         return {"options": options}
-        
     except Exception as e:
-        logger.error(f"Error getting voting options: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error generating voting options: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error generating voting options: {str(e)}")
+
+@app.post("/api/games/{session_id}/scenario/outcome")
+async def get_voting_outcome(session_id: str):
+    try:
+        # Get game state
+        game = await GameState.load(session_id)
+        if not game:
+            logger.error(f"Game not found for session {session_id}")
+            raise HTTPException(status_code=404, detail="Game not found")
+            
+        # Get the current scenario from the game state
+        current_scenario = game.current_scenario
+        if not current_scenario:
+            logger.error(f"No scenario available for session {session_id}")
+            raise HTTPException(status_code=400, detail="No scenario available")
+            
+        # Get the voting results for the current round
+        round_key = str(game.current_round)
+        voting_results = game.voting_results.get(round_key, {})
+        
+        logger.info(f"Voting results for round {round_key}: {voting_results}")
+        
+        if not voting_results:
+            # Try to get votes from the database
+            votes = get_votes(session_id, game.current_round)
+            if votes.data:
+                # Convert database votes to voting_results format
+                voting_results = {vote["player_id"]: vote["vote"] for vote in votes.data}
+                # Update game state with the votes
+                game.voting_results[round_key] = voting_results
+                await game.save()
+            else:
+                logger.error(f"No voting results available for session {session_id}, round {round_key}")
+                raise HTTPException(status_code=400, detail="No voting results available")
+            
+        # Count votes for each option
+        vote_counts = {}
+        for player_id, vote in voting_results.items():
+            if vote not in vote_counts:
+                vote_counts[vote] = 0
+            vote_counts[vote] += 1
+            
+        logger.info(f"Vote counts: {vote_counts}")
+            
+        # Find the winning option
+        winning_option = max(vote_counts.items(), key=lambda x: x[1])[0]
+        logger.info(f"Winning option: {winning_option}")
+        
+        # Generate outcome based on the scenario and winning option
+        outcome = await scenario_generator.generate_voting_outcome(
+            current_scenario.get("title", ""),
+            current_scenario.get("description", ""),
+            winning_option,
+            vote_counts
+        )
+        
+        # Update the game state with the outcome
+        current_scenario["outcome"] = outcome
+        game.current_scenario = current_scenario
+        await game.save()
+        
+        return {"outcome": outcome}
+    except Exception as e:
+        logger.error(f"Error generating voting outcome: {str(e)}")
+        logger.error(f"Error type: {type(e)}")
+        logger.error(f"Error details: {e.__dict__}")
+        raise HTTPException(status_code=500, detail=f"Error generating voting outcome: {str(e)}")
 
 # Clean up timer tasks when the server shuts down
 @app.on_event("shutdown")

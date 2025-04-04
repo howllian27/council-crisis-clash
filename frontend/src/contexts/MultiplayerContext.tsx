@@ -197,6 +197,44 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
                   votingResults: message.payload.results,
                 };
               });
+
+              // Fetch the outcome for the voting results
+              if (currentSession?.session_id) {
+                console.log("Fetching outcome for voting results...");
+                fetch(
+                  `http://localhost:8000/api/games/${currentSession.session_id}/scenario/outcome`,
+                  {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                    },
+                  }
+                )
+                  .then((response) => {
+                    if (!response.ok) {
+                      throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                  })
+                  .then((data) => {
+                    console.log("Received outcome:", data);
+                    // Update the session with the outcome
+                    setCurrentSession((prev) => {
+                      if (!prev) return prev;
+                      return {
+                        ...prev,
+                        currentScenario: {
+                          ...prev.currentScenario,
+                          outcome: data.outcome,
+                        },
+                      };
+                    });
+                  })
+                  .catch((error) => {
+                    console.error("Error fetching outcome:", error);
+                  });
+              }
+
               return; // Exit early to prevent further state updates
             }
           }

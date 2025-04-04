@@ -246,12 +246,28 @@ class GameState(BaseModel):
         if player_id not in self.players or self.players[player_id].has_voted:
             return False
             
+        # Update player's voting status
         self.players[player_id].has_voted = True
-        if self.current_round not in self.voting_results:
-            self.voting_results[self.current_round] = {}
-        self.voting_results[self.current_round][player_id] = vote
+        update_player(self.session_id, player_id, {"has_voted": True})
         
+        # Store vote in voting_results
+        round_key = str(self.current_round)
+        if round_key not in self.voting_results:
+            self.voting_results[round_key] = {}
+        self.voting_results[round_key][player_id] = vote
+        
+        # Record vote in database
         record_vote(self.session_id, player_id, self.current_round, vote)
+        
+        # Save the updated game state
+        await self.save()
+        
+        # Check if all players have voted
+        all_voted = all(player.has_voted for player in self.players.values())
+        if all_voted:
+            self.phase = GamePhase.RESULTS
+            await self.save()
+            
         return True
 
     async def update_resources(self, resource_changes: Dict[ResourceType, int]) -> bool:

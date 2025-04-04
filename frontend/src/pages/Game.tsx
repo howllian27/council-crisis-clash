@@ -27,6 +27,7 @@ const Game = () => {
   // Debug mode state to bypass session check for direct navigation
   const [debugSession, setDebugSession] = useState(null);
   const [debugMode] = useState(import.meta.env.DEV);
+  const [outcome, setOutcome] = useState("");
 
   // Add debug logging for gamePhase
   console.log("Game Phase Value:", {
@@ -102,6 +103,55 @@ const Game = () => {
 
   // Use either the current session or debug session
   const session = currentSession || debugSession;
+
+  // Fetch outcome when phase changes to results
+  useEffect(() => {
+    if (currentGamePhase === "results" && session?.session_id) {
+      console.log("Results phase detected, checking for outcome...");
+
+      // Check if the outcome is already in the session
+      if (session.currentScenario?.outcome) {
+        console.log(
+          "Using outcome from session:",
+          session.currentScenario.outcome
+        );
+        setOutcome(session.currentScenario.outcome);
+        return;
+      }
+
+      console.log("No outcome in session, fetching from API...");
+      // Call the backend API to generate the outcome
+      fetch(
+        `http://localhost:8000/api/games/${session.session_id}/scenario/outcome`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          return response.json();
+        })
+        .then((data) => {
+          console.log("Received outcome:", data);
+          setOutcome(data.outcome);
+        })
+        .catch((error) => {
+          console.error("Error fetching outcome:", error);
+          setOutcome(
+            "The council's decision had significant consequences, but the details are still being processed."
+          );
+        });
+    }
+  }, [
+    currentGamePhase,
+    session?.session_id,
+    session?.currentScenario?.outcome,
+  ]);
 
   // Add a useEffect to fetch the game state directly when the component mounts
   useEffect(() => {
@@ -211,7 +261,7 @@ const Game = () => {
                 ...prev.currentScenario,
                 options: data.options.map((text, index) => ({
                   id: `option${index + 1}`,
-                  text: text,
+                  text: text.replace(/^"|"$/g, ""),
                 })),
               },
             };
@@ -445,23 +495,19 @@ const Game = () => {
             )}
 
             {currentGamePhase === "results" && (
-              <div className="glass-panel p-6 animate-fade-in">
+              <div className="glass-panel p-6 animate-fade-in text-justify">
                 <h2 className="text-2xl font-bold mb-4 neon-glow">Results</h2>
                 <p className="text-gray-300 mb-6">
-                  The council has decided to allocate resources to decode the
-                  signal without responding yet.
+                  {outcome || "Processing the council's decision..."}
                 </p>
-
+                {/* 
                 <div className="p-4 border border-neon-pink rounded-md bg-neon-pink bg-opacity-5 mb-6">
                   <h3 className="font-semibold text-neon-pink mb-2">Outcome</h3>
-                  <p className="text-sm text-gray-300">
-                    Your scientists make significant progress in decoding the
-                    signal. It appears to contain complex schematics for what
-                    could be an advanced propulsion system. Tech resources have
-                    increased, but public rumors about the signal have caused a
-                    minor decrease in happiness.
+                  <p className="text-sm text-gray-300 text-justify">
+                    {outcome ||
+                      "The council's decision had significant consequences, but the details are still being processed."}
                   </p>
-                </div>
+                </div> */}
 
                 <div className="flex justify-end">
                   <Button onClick={handleNextRound} glow>

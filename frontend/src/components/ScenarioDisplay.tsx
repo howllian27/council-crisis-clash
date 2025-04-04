@@ -55,6 +55,11 @@ const ScenarioDisplay: React.FC<ScenarioDisplayProps> = ({
     }
   };
 
+  // Function to clean option text (remove quotes)
+  const cleanOptionText = (text: string) => {
+    return text.replace(/^"|"$/g, "");
+  };
+
   return (
     <div className={cn("glass-panel p-6 animate-fade-in", className)}>
       <div className="mb-6">
@@ -103,7 +108,7 @@ const ScenarioDisplay: React.FC<ScenarioDisplayProps> = ({
                 )}
                 onClick={() => timeLeft > 0 && handleOptionClick(option.id)}
               >
-                <p className="text-gray-300">{option.text}</p>
+                <p className="text-gray-300">{cleanOptionText(option.text)}</p>
                 {option.id === selectedOption && (
                   <p className="text-neon-pink text-sm mt-2 font-semibold">
                     Your Vote

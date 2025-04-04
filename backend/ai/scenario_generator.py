@@ -195,11 +195,65 @@ class ScenarioGenerator:
 
     def _create_fallback_options(self) -> List[str]:
         return [
-            "Divert resources from other sectors to fix the power grid immediately",
-            "Implement rolling blackouts and gradually repair the system",
-            "Outsource the repair to a private contractor with a fixed deadline",
-            "Evacuate affected areas and focus on protecting essential services"
+            "Option 1",
+            "Option 2",
+            "Option 3",
+            "Option 4"
         ]
+        
+    async def generate_voting_outcome(self, title: str, description: str, winning_option: str, vote_counts: Dict[str, int]) -> str:
+        """
+        Generate an outcome narrative based on the scenario and voting results.
+        """
+        try:
+            # Format vote counts for the prompt
+            vote_summary = "\n".join([f"- {option}: {count} votes" for option, count in vote_counts.items()])
+            
+            prompt = f"""
+            Create a narrative outcome for the following scenario and voting results:
+            
+            TITLE: {title}
+            DESCRIPTION: {description}
+            
+            VOTING RESULTS:
+            {vote_summary}
+            
+            WINNING OPTION: {winning_option}
+            
+            Create a narrative that:
+            1. Describes what happened after the council made their decision
+            2. Explains the consequences of their choice
+            3. Mentions how resources were affected (tech, manpower, economy, happiness, trust)
+            4. Is 3-4 sentences long
+            5. Has a dramatic and engaging tone
+            """
+            
+            # Use async API call
+            response = await self.client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": "You are a game master creating narrative outcomes for a government council game. Create engaging outcomes that describe the consequences of the council's decisions."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=500
+            )
+            
+            # Get the outcome from the response
+            outcome = response.choices[0].message.content.strip()
+            logger.info(f"Generated voting outcome: {outcome}")
+            
+            return outcome
+            
+        except Exception as e:
+            logger.error(f"Error generating voting outcome: {str(e)}")
+            logger.error(f"Error type: {type(e)}")
+            logger.error(f"Error details: {e.__dict__}")
+            # Return a fallback outcome
+            return self._create_fallback_outcome()
+            
+    def _create_fallback_outcome(self) -> str:
+        return "The council's decision led to mixed results. Some resources were improved while others suffered. The situation remains unresolved, and the council must prepare for future challenges."
 
 # Create a singleton instance
 scenario_generator = ScenarioGenerator() 
