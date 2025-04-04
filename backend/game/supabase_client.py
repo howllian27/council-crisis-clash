@@ -1,6 +1,7 @@
 from supabase.client import create_client
 import os
 from dotenv import load_dotenv
+from datetime import datetime
 
 load_dotenv()
 
@@ -23,7 +24,8 @@ def get_game(session_id: str):
     try:
         # Select only game-specific columns from the games table
         columns = (
-            "session_id, host_id, current_round, max_rounds, is_active, phase, current_scenario"
+            "session_id, host_id, current_round, max_rounds, is_active, phase, current_scenario, "
+            "timer_running, timer_end_time, round_start_time, round_end_time"
         )
         response = (
             supabase
@@ -74,7 +76,19 @@ def create_game(session_id: str, host_id: str):
         raise
 
 def update_game(session_id: str, updates: dict):
-    supabase.table(GAMES_TABLE).update(updates).eq("session_id", session_id).execute()
+    try:
+        # Make sure datetime objects are converted to ISO format strings
+        updates_copy = updates.copy()
+        for key, value in updates_copy.items():
+            if isinstance(value, datetime):
+                updates_copy[key] = value.isoformat()
+        
+        response = supabase.table(GAMES_TABLE).update(updates_copy).eq("session_id", session_id).execute()
+        print(f"Game update response: {response}")  # Debug print
+        return response
+    except Exception as e:
+        print(f"Error updating game: {str(e)}")
+        raise
 
 def get_players(session_id: str):
     response = supabase.table(PLAYERS_TABLE).select("*").eq("session_id", session_id).execute()

@@ -3,12 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
 import logging
-from game.websocket import websocket_manager
+import asyncio
+from game.websocket import manager
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict
 import uuid
 from game.state import GameState, Player, GamePhase
 from game.supabase_client import supabase, get_game, get_players, add_player, update_player
+from datetime import datetime, timedelta
 
 # Configure logging
 logging.basicConfig(
@@ -51,17 +53,72 @@ class VoteRequest(BaseModel):
     player_id: str
     option: str
 
+# Store active timer tasks
+timer_tasks: Dict[str, asyncio.Task] = {}
+
+async def check_timer(session_id: str):
+    try:
+        logger.info(f"Starting timer check for session {session_id}")
+        while True:
+            # Get current game state
+            game = await GameState.load(session_id)
+            logger.info(f"Timer check - Game state: {game.dict() if game else 'None'}")
+            
+            if not game:
+                logger.info(f"Game not found for session {session_id}, stopping timer")
+                break
+                
+            if not game.timer_running:
+                logger.info(f"Timer not running for session {session_id}, stopping timer check")
+                break
+
+            # Use timezone-aware datetime for comparison
+            now = datetime.utcnow().replace(tzinfo=None)
+            if game.timer_end_time and now >= game.timer_end_time.replace(tzinfo=None):
+                logger.info(f"Timer expired for session {session_id}")
+                # Update game phase to results
+                game.phase = GamePhase.RESULTS
+                game.timer_running = False
+                game.timer_end_time = None
+                
+                # Update in Supabase
+                update_data = {
+                    "phase": "results",
+                    "timer_running": False,
+                    "timer_end_time": None,
+                    "updated_at": now.isoformat()
+                }
+                result = supabase.table("games").update(update_data).eq("session_id", session_id).execute()
+                logger.info(f"Updated game phase to results: {result}")
+                
+                # Save game state
+                await game.save()
+                
+                # Broadcast phase change to all connected clients
+                await manager.broadcast_to_session(session_id, {
+                    "type": "phase_change",
+                    "payload": {"phase": "results"}
+                })
+                break
+
+            await asyncio.sleep(1)  # Check every second
+    except Exception as e:
+        logger.error(f"Error in timer check for session {session_id}: {str(e)}")
+        raise
+
 @app.get("/")
 async def root():
     return {"message": "Welcome to Project Oversight API"}
 
-@app.websocket("/ws/game/{session_id}")
-async def websocket_endpoint(websocket: WebSocket, session_id: str):
-    await websocket_manager.connect(websocket, session_id)
+@app.websocket("/ws/{session_id}/{player_id}")
+async def websocket_endpoint(websocket: WebSocket, session_id: str, player_id: str):
+    await manager.connect(websocket, session_id, player_id)
     try:
-        await websocket_manager.handle_message(websocket, session_id)
+        while True:
+            data = await websocket.receive_json()
+            await manager.handle_message(websocket, session_id, data)
     except WebSocketDisconnect:
-        websocket_manager.disconnect(websocket, session_id)
+        await manager.disconnect(session_id, player_id)
 
 # Game endpoints
 @app.post("/api/games")
@@ -193,7 +250,7 @@ async def get_game_state(session_id: str):
 @app.post("/api/games/{session_id}/start")
 async def start_game(session_id: str):
     try:
-        logger.info(f"Starting game for session_id: {session_id}")
+        logger.info(f"=== Starting game for session_id: {session_id} ===")
         
         # Load game state
         logger.info("Loading game state...")
@@ -224,9 +281,38 @@ async def start_game(session_id: str):
         logger.info(f"Setting initial scenario: {initial_scenario}")
         game.current_scenario = initial_scenario
         game.phase = GamePhase.SCENARIO
+        
+        # Update game in Supabase
+        logger.info("Updating game in Supabase...")
+        update_data = {
+            "current_scenario": initial_scenario,
+            "phase": "scenario",
+            "updated_at": datetime.utcnow().isoformat()
+        }
+        logger.info(f"Update data: {update_data}")
+        
+        result = supabase.table("games").update(update_data).eq("session_id", session_id).execute()
+        logger.info(f"Supabase response: {result}")
+        
+        if hasattr(result, 'error') and result.error:
+            logger.error(f"Error updating game in Supabase: {result.error}")
+            raise HTTPException(status_code=500, detail="Failed to update game in database")
+        
         await game.save()
         
+        # Broadcast a message to all connected clients to check if they should start the timer
+        logger.info("Broadcasting game started message to all connected clients")
+        await manager.broadcast_to_session({
+            "type": "game_started",
+            "scenario": initial_scenario,
+            "phase": "scenario"
+        }, session_id)
+        
+        # Check if we should start the timer now
+        await manager.check_and_start_timer(session_id)
+        
         logger.info(f"Game started successfully for session_id: {session_id}")
+        logger.info(f"Current phase: {game.phase}")
         return {"message": "Game started successfully"}
     except HTTPException as he:
         logger.error(f"HTTP Exception in start_game: {he.detail}")
@@ -235,6 +321,48 @@ async def start_game(session_id: str):
         logger.error(f"Unexpected error in start_game: {str(e)}")
         logger.error(f"Error type: {type(e)}")
         logger.error(f"Error details: {e.__dict__}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/api/games/{session_id}/timer")
+async def update_timer(session_id: str, request: Request):
+    try:
+        updates = await request.json()
+        game = await GameState.load(session_id)
+        if not game:
+            raise HTTPException(status_code=404, detail="Game not found")
+            
+        # If starting the timer, set the end time to 60 seconds from now
+        if updates.get("timer_running", False):
+            # Use timezone-naive datetime for consistency
+            end_time = datetime.utcnow().replace(tzinfo=None) + timedelta(seconds=60)
+        else:
+            end_time = None
+            
+        # Update timer state in Supabase
+        result = supabase.table("games").update({
+            "timer_end_time": end_time.isoformat() if end_time else None,
+            "timer_running": updates.get("timer_running", False),
+            "updated_at": datetime.utcnow().replace(tzinfo=None).isoformat()
+        }).eq("session_id", session_id).execute()
+        
+        # Check if the update was successful
+        if not result.data:
+            logger.error(f"Failed to update timer in Supabase: {result}")
+            raise HTTPException(status_code=500, detail="Failed to update timer in database")
+            
+        # Update local game state
+        game.timer_end_time = end_time
+        game.timer_running = updates.get("timer_running", False)
+        await game.save()
+        
+        # If starting the timer, ensure the timer check task is running
+        if game.timer_running:
+            if session_id not in timer_tasks or timer_tasks[session_id].done():
+                timer_tasks[session_id] = asyncio.create_task(check_timer(session_id))
+        
+        return {"message": "Timer updated successfully"}
+    except Exception as e:
+        logger.error(f"Error updating timer: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.patch("/api/games/{session_id}/players/{player_id}")
@@ -255,6 +383,49 @@ async def update_player(session_id: str, player_id: str, request: Request):
     except Exception as e:
         logger.error(f"Error updating player: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/api/games/{session_id}/phase")
+async def update_game_phase(session_id: str, request: Request):
+    try:
+        updates = await request.json()
+        new_phase = updates.get("phase")
+        
+        if not new_phase:
+            raise HTTPException(status_code=400, detail="Phase is required")
+            
+        # Update game phase in Supabase
+        game = await GameState.load(session_id)
+        if not game:
+            raise HTTPException(status_code=404, detail="Game not found")
+            
+        # Update phase in Supabase
+        from game.supabase_client import supabase
+        from datetime import datetime
+        
+        result = supabase.table("games").update({
+            "phase": new_phase,
+            "updated_at": datetime.utcnow().isoformat()
+        }).eq("session_id", session_id).execute()
+        
+        if result.error:
+            logger.error(f"Error updating game phase in Supabase: {result.error}")
+            raise HTTPException(status_code=500, detail="Failed to update game phase in database")
+            
+        # Update local game state
+        game.phase = new_phase
+        await game.save()
+        
+        return {"message": "Game phase updated successfully"}
+    except Exception as e:
+        logger.error(f"Error updating game phase: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Clean up timer tasks when the server shuts down
+@app.on_event("shutdown")
+async def shutdown_event():
+    for task in timer_tasks.values():
+        task.cancel()
+    await asyncio.gather(*timer_tasks.values(), return_exceptions=True)
 
 if __name__ == "__main__":
     import uvicorn

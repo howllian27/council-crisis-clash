@@ -93,6 +93,8 @@ export interface GameState {
     };
   };
   roundStartTime?: number;
+  timer_running?: boolean;
+  timer_end_time?: string | null;
 }
 
 interface PlayerUpdate {
@@ -594,20 +596,109 @@ export const gameService = {
     }
   },
 
-  updateGame: async (sessionId: string, updates: Partial<GameState>) => {
-    console.log("Updating game state:", { sessionId, updates });
-    const { data, error } = await supabase
-      .from("game_sessions")
-      .update(updates)
-      .eq("session_id", sessionId)
-      .select()
-      .single();
+  async updateGamePhase(sessionId: string, phase: string): Promise<void> {
+    try {
+      console.log("Updating game phase:", { sessionId, phase });
 
-    if (error) {
-      console.error("Error updating game state:", error);
+      // Update in Supabase
+      const { error: supabaseError } = await supabase
+        .from("games")
+        .update({
+          phase: phase,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("session_id", sessionId)
+        .select();
+
+      if (supabaseError) {
+        console.error("Error updating game phase in Supabase:", supabaseError);
+        throw supabaseError;
+      }
+
+      // Update through API
+      const response = await fetch(
+        `${API_BASE_URL}/api/games/${sessionId}/phase`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ phase }),
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Failed to update game phase");
+      }
+
+      console.log("Game phase updated successfully");
+    } catch (error) {
+      console.error("Error in updateGamePhase:", error);
       throw error;
     }
+  },
 
-    return data;
+  async updateTimer(
+    sessionId: string,
+    timerEndTime: Date | null,
+    timerRunning: boolean
+  ): Promise<void> {
+    try {
+      console.log("Updating timer:", { sessionId, timerEndTime, timerRunning });
+
+      // Update through API
+      const response = await fetch(
+        `${API_BASE_URL}/api/games/${sessionId}/timer`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            timer_running: timerRunning,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Failed to update timer");
+      }
+
+      // Check if the response has data
+      const data = await response.json();
+      if (!data) {
+        throw new Error("No response data received from server");
+      }
+
+      console.log("Timer updated successfully:", data);
+    } catch (error) {
+      console.error("Error in updateTimer:", error);
+      throw error;
+    }
+  },
+
+  async startTimer(sessionId: string): Promise<void> {
+    try {
+      console.log("Starting timer for session:", sessionId);
+      // Just set timer_running to true, server will handle the end time
+      await this.updateTimer(sessionId, null, true);
+      console.log("Timer started successfully");
+    } catch (error) {
+      console.error("Error starting timer:", error);
+      throw error;
+    }
+  },
+
+  async stopTimer(sessionId: string): Promise<void> {
+    try {
+      console.log("Stopping timer for session:", sessionId);
+      await this.updateTimer(sessionId, null, false);
+      console.log("Timer stopped successfully");
+    } catch (error) {
+      console.error("Error stopping timer:", error);
+      throw error;
+    }
   },
 };

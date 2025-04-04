@@ -38,6 +38,8 @@ interface GameSession {
   phase: string;
   currentScenario: Scenario;
   roundStartTime: number;
+  timer_running: boolean;
+  timer_end_time: string | null;
 }
 
 interface Player {
@@ -132,7 +134,8 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
       const newSubscription = gameService.subscribeToGame(
         currentSession.session_id,
         (gameState) => {
-          console.log("Received game state update:", gameState);
+          console.log("=== Received Game State Update ===");
+          console.log("Game State:", gameState);
 
           if (
             typeof gameState === "object" &&
@@ -157,7 +160,37 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
             }
           }
 
+          // Log timer state changes
+          if (gameState.timer_running !== currentSession?.timer_running) {
+            console.log("Timer running state changed:", {
+              previous: currentSession?.timer_running,
+              current: gameState.timer_running,
+              timestamp: new Date().toISOString(),
+            });
+
+            if (gameState.timer_running) {
+              console.log("Timer started");
+            } else {
+              console.log("Timer stopped");
+            }
+          }
+
+          if (gameState.timer_end_time !== currentSession?.timer_end_time) {
+            console.log("Timer end time changed:", {
+              previous: currentSession?.timer_end_time,
+              current: gameState.timer_end_time,
+              timestamp: new Date().toISOString(),
+            });
+          }
+
           // Update the phase in the context first
+          if (gameState.phase !== currentSession?.phase) {
+            console.log("Phase changed:", {
+              previous: currentSession?.phase,
+              current: gameState.phase,
+              timestamp: new Date().toISOString(),
+            });
+          }
           setGamePhase(gameState.phase);
 
           // Check if phase changed to scenario
@@ -165,11 +198,53 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
             gameState.phase === "scenario" &&
             currentSession.phase !== "scenario"
           ) {
-            console.log("Phase changed to scenario, navigating to game page");
+            console.log(
+              "Phase changed to scenario, starting timer and navigating to game page"
+            );
+            // Only start timer if it's not already running
+            if (currentSession?.session_id && !gameState.timer_running) {
+              gameService
+                .startTimer(currentSession.session_id)
+                .then(() => {
+                  console.log("Timer started on server");
+                })
+                .catch((error) => {
+                  console.error("Error starting timer:", error);
+                  toast({
+                    title: "Error",
+                    description: "Failed to start timer. Please try again.",
+                    variant: "destructive",
+                  });
+                });
+            }
             navigate(
               `/game?sessionId=${currentSession.session_id}&playerId=${playerId}`
             );
             return; // Exit early to prevent state update
+          }
+
+          // Check if phase changed to results
+          if (
+            gameState.phase === "results" &&
+            currentSession.phase !== "results"
+          ) {
+            console.log("Phase changed to results, stopping timer");
+            // Only stop timer if it's currently running
+            if (currentSession?.session_id && gameState.timer_running) {
+              gameService
+                .stopTimer(currentSession.session_id)
+                .then(() => {
+                  console.log("Timer stopped on server");
+                })
+                .catch((error) => {
+                  console.error("Error stopping timer:", error);
+                  toast({
+                    title: "Error",
+                    description: "Failed to stop timer. Please try again.",
+                    variant: "destructive",
+                  });
+                });
+            }
           }
 
           setCurrentSession((prev) => {
@@ -202,12 +277,14 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
               ],
             };
 
-            console.log("MultiplayerContext Debug:", {
-              gameState,
-              currentScenario,
-              phase: gameState.phase,
-              currentSessionPhase: currentSession.phase,
-              isHost: playerId === prev.host_id,
+            console.log("Updating session state:", {
+              previousPhase: prev.phase,
+              newPhase: gameState.phase,
+              previousTimerRunning: prev.timer_running,
+              newTimerRunning: gameState.timer_running,
+              previousTimerEndTime: prev.timer_end_time,
+              newTimerEndTime: gameState.timer_end_time,
+              timestamp: new Date().toISOString(),
             });
 
             return {
@@ -257,6 +334,8 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
               phase: gameState.phase,
               currentScenario,
               roundStartTime: gameState.roundStartTime || Date.now(),
+              timer_running: gameState.timer_running,
+              timer_end_time: gameState.timer_end_time,
             };
           });
         }
@@ -333,6 +412,8 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
           ],
         },
         roundStartTime: Date.now(),
+        timer_running: false,
+        timer_end_time: null,
       });
 
       setIsConnected(true);
@@ -432,6 +513,8 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
           ],
         },
         roundStartTime: Date.now(),
+        timer_running: false,
+        timer_end_time: null,
       });
 
       setIsConnected(true);
@@ -499,51 +582,63 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
-  // Add a new function to update game phase
-  const updateGamePhase = useCallback(
-    async (newPhase: string) => {
-      if (!currentSession?.session_id) return;
-
-      try {
-        console.log("Updating game phase to:", newPhase);
-        await gameService.updateGame(currentSession.session_id, {
-          phase: newPhase,
-        });
-
-        // Update local state
-        setGamePhase(newPhase);
-        setCurrentSession((prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            phase: newPhase,
-          };
-        });
-      } catch (error) {
-        console.error("Error updating game phase:", error);
-        toast({
-          title: "Error",
-          description: "Failed to update game phase. Please try again.",
-          variant: "destructive",
-        });
-      }
-    },
-    [currentSession?.session_id, toast]
-  );
-
   // Update the handleTimerExpiration function
-  const handleTimerExpiration = useCallback(async () => {
-    console.log("Timer expired, transitioning to results phase");
-    await updateGamePhase("results");
-  }, [updateGamePhase]);
+  const handleTimerExpiration = useCallback(() => {
+    console.log("=== Timer Expiration Handler ===");
+    console.log("Current session state:", currentSession);
+    console.log("Current game phase:", gamePhase);
+    console.log("Timestamp:", new Date().toISOString());
+
+    // Update phase to results when timer expires
+    if (currentSession?.session_id) {
+      console.log("Timer expired, transitioning to results phase");
+      gameService
+        .updateGamePhase(currentSession.session_id, "results")
+        .then(() => {
+          console.log("Game phase updated to results on server");
+          // The subscription will handle updating the local state
+        })
+        .catch((error) => {
+          console.error("Error updating game phase:", error);
+          toast({
+            title: "Error",
+            description: "Failed to update game phase. Please try again.",
+            variant: "destructive",
+          });
+        });
+    }
+  }, [currentSession?.session_id, toast]);
+
+  // Remove the timer check effect since timer is now managed server-side
+  useEffect(() => {
+    console.log("=== Phase Change Effect ===");
+    console.log("Game phase changed to:", gamePhase);
+    console.log("Current session phase:", currentSession?.phase);
+    console.log("Timer running:", currentSession?.timer_running);
+    console.log("Timer end time:", currentSession?.timer_end_time);
+    console.log("Timestamp:", new Date().toISOString());
+
+    if (gamePhase === "scenario") {
+      console.log("Scenario phase active - timer should be running on server");
+    } else if (gamePhase === "results") {
+      console.log("Results phase active - timer should be stopped on server");
+    }
+  }, [gamePhase, currentSession]);
 
   // Update the castVote function
   const castVote = useCallback(
     async (optionId: string) => {
-      if (!currentSession || !playerId) return;
+      if (!currentSession || !playerId) {
+        console.log("Cannot cast vote: no session or player ID");
+        return;
+      }
 
       try {
-        console.log("Casting vote:", { optionId, playerId });
+        console.log("=== Casting Vote ===");
+        console.log("Option ID:", optionId);
+        console.log("Player ID:", playerId);
+        console.log("Current session state:", currentSession);
+
         await gameService.recordVote(
           currentSession.session_id,
           playerId,
@@ -553,6 +648,7 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
         // Update local state
         setCurrentSession((prev) => {
           if (!prev) return prev;
+          console.log("Updating local session state after vote");
           return {
             ...prev,
             players: prev.players.map((p) =>
@@ -563,9 +659,12 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
 
         // Check if all players have voted
         const allPlayersVoted = currentSession.players.every((p) => p.hasVoted);
+        console.log("All players voted:", allPlayersVoted);
+
         if (allPlayersVoted) {
           console.log("All players have voted, transitioning to results phase");
-          await updateGamePhase("results");
+          // The server will handle stopping the timer and updating the phase
+          // The subscription will handle updating the local state
         }
       } catch (error) {
         console.error("Error casting vote:", error);
@@ -576,7 +675,7 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
         });
       }
     },
-    [currentSession, playerId, updateGamePhase, toast]
+    [currentSession, playerId, toast]
   );
 
   // Move to the next round
@@ -590,22 +689,6 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
       setError("Failed to start next round. Please try again.");
     }
   };
-
-  // Add timer expiration check
-  useEffect(() => {
-    if (currentSession?.phase === "scenario" && currentSession.roundStartTime) {
-      const checkTimer = () => {
-        const elapsed = (Date.now() - currentSession.roundStartTime) / 1000;
-        if (elapsed >= 60) {
-          // 60 seconds time limit
-          handleTimerExpiration();
-        }
-      };
-
-      const timer = setInterval(checkTimer, 1000);
-      return () => clearInterval(timer);
-    }
-  }, [currentSession, handleTimerExpiration]);
 
   return (
     <MultiplayerContext.Provider

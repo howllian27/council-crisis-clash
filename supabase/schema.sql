@@ -11,6 +11,8 @@ CREATE TABLE games (
     elimination_target TEXT,
     round_start_time TIMESTAMP WITH TIME ZONE,
     round_end_time TIMESTAMP WITH TIME ZONE,
+    timer_end_time TIMESTAMP WITH TIME ZONE,
+    timer_running BOOLEAN DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

@@ -14,6 +14,7 @@ from .supabase_client import (
     add_secret_incentive,
     record_vote
 )
+from datetime import datetime
 
 class ResourceType(str, Enum):
     TECH = "tech"
@@ -56,14 +57,17 @@ class GameState(BaseModel):
     is_active: bool = True
     phase: GamePhase = GamePhase.LOBBY
     elimination_target: Optional[str] = None
-    round_start_time: Optional[float] = None
-    round_end_time: Optional[float] = None
+    round_start_time: Optional[datetime] = None
+    round_end_time: Optional[datetime] = None
+    timer_end_time: Optional[datetime] = None
+    timer_running: bool = False
     secret_incentives: Dict[str, str] = {}  # player_id -> incentive
 
     class Config:
         arbitrary_types_allowed = True
         json_encoders = {
-            ResourceType: lambda v: v.value
+            ResourceType: lambda v: v.value,
+            datetime: lambda v: v.isoformat() if v else None
         }
         extra = "ignore"
 
@@ -95,6 +99,37 @@ class GameState(BaseModel):
             # If the "games" table has a JSON column "resources" that we don't want:
             if "resources" in game_data_copy:
                 del game_data_copy["resources"]
+
+            # Convert datetime strings to datetime objects if they exist
+            if "timer_end_time" in game_data_copy and game_data_copy["timer_end_time"]:
+                try:
+                    game_data_copy["timer_end_time"] = datetime.fromisoformat(game_data_copy["timer_end_time"].replace('Z', '+00:00'))
+                except (ValueError, TypeError):
+                    game_data_copy["timer_end_time"] = None
+
+            if "round_start_time" in game_data_copy and game_data_copy["round_start_time"]:
+                try:
+                    game_data_copy["round_start_time"] = datetime.fromisoformat(game_data_copy["round_start_time"].replace('Z', '+00:00'))
+                except (ValueError, TypeError):
+                    game_data_copy["round_start_time"] = None
+
+            if "round_end_time" in game_data_copy and game_data_copy["round_end_time"]:
+                try:
+                    game_data_copy["round_end_time"] = datetime.fromisoformat(game_data_copy["round_end_time"].replace('Z', '+00:00'))
+                except (ValueError, TypeError):
+                    game_data_copy["round_end_time"] = None
+
+            # Ensure timer_running is properly set
+            if "timer_running" not in game_data_copy:
+                game_data_copy["timer_running"] = False
+            else:
+                # Convert to boolean if it's a string
+                if isinstance(game_data_copy["timer_running"], str):
+                    game_data_copy["timer_running"] = game_data_copy["timer_running"].lower() == "true"
+                # Ensure it's a boolean
+                game_data_copy["timer_running"] = bool(game_data_copy["timer_running"])
+                
+            print(f"Timer running from database: {game_data_copy.get('timer_running')}")  # Debug print
 
             # 2) Load players from the "players" table
             players_data = get_players(session_id)
@@ -143,12 +178,15 @@ class GameState(BaseModel):
                 current_round=game_data_copy.get("current_round", 1),
                 max_rounds=game_data_copy.get("max_rounds", 10),
                 current_scenario=game_data_copy.get("current_scenario"),
-                # fill in current_options or voting_results if needed
                 current_options=[],
                 voting_results={},
                 is_active=game_data_copy.get("is_active", True),
                 phase=GamePhase(game_data_copy.get("phase", GamePhase.LOBBY)),
-                secret_incentives=incentives_dict
+                secret_incentives=incentives_dict,
+                timer_end_time=game_data_copy.get("timer_end_time"),
+                timer_running=game_data_copy.get("timer_running", False),
+                round_start_time=game_data_copy.get("round_start_time"),
+                round_end_time=game_data_copy.get("round_end_time")
             )
             return game_state
 
@@ -163,7 +201,9 @@ class GameState(BaseModel):
                 "current_round": self.current_round,
                 "current_scenario": self.current_scenario,
                 "is_active": self.is_active,
-                "phase": self.phase.value  # Convert enum to string value
+                "phase": self.phase.value,  # Convert enum to string value
+                "timer_end_time": self.timer_end_time.isoformat() if self.timer_end_time else None,
+                "timer_running": self.timer_running
             }
             print(f"Saving game updates: {game_updates}")  # Debug print
             update_game(self.session_id, game_updates)
