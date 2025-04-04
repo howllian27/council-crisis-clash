@@ -2,6 +2,7 @@ from supabase.client import create_client
 import os
 from dotenv import load_dotenv
 from datetime import datetime
+from typing import Dict
 
 load_dotenv()
 
@@ -140,42 +141,41 @@ def record_vote(session_id: str, player_id: str, round: int, vote: str):
         "vote": vote
     }).execute()
 
-def get_resources(session_id: str):
+def get_resources(session_id: str) -> Dict[str, int]:
     try:
-        columns = ["tech", "manpower", "economy", "happiness", "trust"]
-        response = supabase.table(RESOURCES_TABLE).select(columns).eq("session_id", session_id).execute()
-        if not response.data:
-            print(f"No resources found for session_id: {session_id}")  # Debug print
-            return None
-            
-        # Get the first (and only) resource record
-        resource_data = response.data[0]
-        print(f"Raw resource data from Supabase: {resource_data}")  # Debug print
+        # Query the resources table for the specific session
+        result = supabase.table("resources").select("*").eq("session_id", session_id).single().execute()
         
-        # Define valid resource fields
-        valid_fields = ["tech", "manpower", "economy", "happiness", "trust"]
-        
-        # Create filtered data with only valid resource fields
-        filtered_data = {}
-        for field in valid_fields:
-            try:
-                value = resource_data.get(field)
-                if value is None:
-                    print(f"Warning: {field} is None, using default value")  # Debug print
-                    filtered_data[field] = 100
-                else:
-                    filtered_data[field] = int(value)
-            except (ValueError, TypeError) as e:
-                print(f"Error converting {field} to int: {e}")  # Debug print
-                filtered_data[field] = 100  # Default value if conversion fails
-        
-        print(f"Filtered resource data: {filtered_data}")  # Debug print
-        return filtered_data
+        if result.data:
+            # Extract individual resource values
+            resources = {
+                "tech": result.data.get("tech", 100),
+                "manpower": result.data.get("manpower", 100),
+                "economy": result.data.get("economy", 100),
+                "happiness": result.data.get("happiness", 100),
+                "trust": result.data.get("trust", 100)
+            }
+            return resources
+        else:
+            # If no resources found, return default values
+            return {
+                "tech": 100,
+                "manpower": 100,
+                "economy": 100,
+                "happiness": 100,
+                "trust": 100
+            }
     except Exception as e:
-        print(f"Error in get_resources: {str(e)}")  # Debug print
-        print(f"Error type: {type(e)}")  # Debug print
-        print(f"Error details: {e.__dict__}")  # Debug print
-        return None
+        print(f"Error in get_resources: {e.__dict__ if hasattr(e, '__dict__') else str(e)}")
+        print(f"Error type: {type(e)}")
+        # Return default values on error
+        return {
+            "tech": 100,
+            "manpower": 100,
+            "economy": 100,
+            "happiness": 100,
+            "trust": 100
+        }
 
 def update_resources(session_id: str, resources: dict):
     try:

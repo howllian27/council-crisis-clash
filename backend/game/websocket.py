@@ -1,11 +1,12 @@
 from fastapi import WebSocket, WebSocketDisconnect
-from typing import Dict, List
+from typing import Dict, List, Optional
 import json
 from game.state import GameState, GamePhase
 from datetime import datetime, timedelta
 import asyncio
 from game.supabase_client import supabase
 import logging
+from ai.scenario_generator import scenario_generator
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +191,7 @@ class GameWebSocketManager:
         try:
             message_type = data.get("type")
             payload = data.get("payload", {})
+            logger.info(f"Handling message type: {message_type} for session {session_id}")
 
             if message_type == "join_game":
                 # Handle player joining the game
@@ -224,17 +226,23 @@ class GameWebSocketManager:
                 # Generate initial scenario
                 game = await GameState.load(session_id)
                 if game and len(game.players) >= 2:
+                    # Generate scenario using OpenAI
+                    title, description = await scenario_generator.generate_scenario(game.dict())
+                    options = await scenario_generator.generate_voting_options(title, description)
+                    
+                    # Format scenario
                     scenario = {
-                        "title": "Mysterious Signal From Deep Space",
-                        "description": "Our deep space monitoring stations have detected an unusual signal originating from beyond our solar system. Initial analysis suggests it could be artificial in nature. The signal appears to contain complex mathematical sequences that our scientists believe may be an attempt at communication. However, there is no consensus on whether we should respond or what the message might contain.",
-                        "consequences": "How we handle this situation could dramatically affect our technological development and potentially our safety if the signal represents a threat.",
+                        "title": title,
+                        "description": description,
+                        "consequences": "The council's decision will have significant implications for our future.",
                         "options": [
-                            {"id": "option1", "text": "Allocate resources to decode the signal but do not respond yet"},
-                            {"id": "option2", "text": "Immediately broadcast a response using similar mathematical principles"},
-                            {"id": "option3", "text": "Ignore the signal and increase our defensive capabilities"},
-                            {"id": "option4", "text": "Share the discovery with the public and crowdsource analysis"}
+                            {"id": f"option{i+1}", "text": option} 
+                            for i, option in enumerate(options)
                         ]
                     }
+                    
+                    logger.info(f"Generated scenario: {scenario}")
+                    
                     game.current_scenario = scenario
                     game.phase = GamePhase.SCENARIO
                     await game.save()

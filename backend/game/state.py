@@ -225,9 +225,11 @@ class GameState(BaseModel):
             raise
 
     async def add_player(self, player: Player) -> bool:
-        if len(self.players) >= 4:
+        # Count only active players
+        active_players = [p for p in self.players.values() if p.is_active]
+        if len(active_players) >= 4:
             return False
-            
+        
         self.players[player.id] = player
         add_player(self.session_id, player.dict())
         return True

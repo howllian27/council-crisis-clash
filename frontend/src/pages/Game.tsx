@@ -10,6 +10,7 @@ import {
   createGameSession,
   getSampleScenario,
 } from "../services/gameSessionService";
+import { gameService } from "../services/gameService";
 
 const Game = () => {
   const navigate = useNavigate();
@@ -20,6 +21,7 @@ const Game = () => {
     castVote,
     nextRound,
     leaveSession,
+    setCurrentSession,
   } = useMultiplayer();
 
   // Debug mode state to bypass session check for direct navigation
@@ -101,6 +103,126 @@ const Game = () => {
   // Use either the current session or debug session
   const session = currentSession || debugSession;
 
+  // Add a useEffect to fetch the game state directly when the component mounts
+  useEffect(() => {
+    if (session?.session_id && !session.currentScenario) {
+      console.log("Game component mounted, fetching game state directly...");
+      gameService
+        .getGameState(session.session_id)
+        .then((gameState) => {
+          console.log("Directly fetched game state on mount:", gameState);
+
+          if (gameState.current_scenario) {
+            console.log(
+              "Found scenario in game state:",
+              gameState.current_scenario
+            );
+
+            // Parse the scenario if it's a string
+            let parsedScenario = gameState.current_scenario;
+            if (typeof parsedScenario === "string") {
+              try {
+                parsedScenario = JSON.parse(parsedScenario);
+                console.log(
+                  "Successfully parsed scenario from string:",
+                  parsedScenario
+                );
+              } catch (e) {
+                console.error("Failed to parse current_scenario:", e);
+                return;
+              }
+            }
+
+            // Update the session directly with the scenario data
+            setCurrentSession((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                currentScenario: {
+                  title: parsedScenario.title
+                    ? parsedScenario.title.replace(/^"|"$/g, "")
+                    : "Untitled Scenario",
+                  description:
+                    parsedScenario.description || "No description available",
+                  consequences:
+                    parsedScenario.consequences || "No consequences specified.",
+                  options: parsedScenario.options
+                    ? parsedScenario.options.map((opt, index) => ({
+                        id: opt.id || `option${index + 1}`,
+                        text: opt.text || `Option ${index + 1}`,
+                      }))
+                    : [],
+                },
+              };
+            });
+
+            // Update the game phase to trigger the subscription in MultiplayerContext
+            gameService
+              .updateGamePhase(session.session_id, gameState.phase)
+              .then(() => {
+                console.log("Updated game phase to:", gameState.phase);
+              })
+              .catch((error) => {
+                console.error("Error updating game phase:", error);
+              });
+          }
+        })
+        .catch((error) => {
+          console.error("Error fetching game state on mount:", error);
+        });
+    }
+  }, [session?.session_id, setCurrentSession]);
+
+  // Add a useEffect to fetch voting options if we have a scenario but no options
+  useEffect(() => {
+    if (
+      session?.session_id &&
+      session.currentScenario &&
+      (!session.currentScenario.options ||
+        session.currentScenario.options.length === 0)
+    ) {
+      console.log("Fetching voting options for scenario...");
+
+      // Call the backend API to generate voting options
+      fetch(
+        `http://localhost:8000/api/games/${session.session_id}/scenario/options`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      )
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          return response.json();
+        })
+        .then((data) => {
+          console.log("Received voting options:", data);
+
+          // Update the session with the new options
+          setCurrentSession((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              currentScenario: {
+                ...prev.currentScenario,
+                options: data.options.map((text, index) => ({
+                  id: `option${index + 1}`,
+                  text: text,
+                })),
+              },
+            };
+          });
+        })
+        .catch((error) => {
+          console.error("Error fetching voting options:", error);
+        });
+    }
+  }, [session?.session_id, session?.currentScenario, setCurrentSession]);
+
   if (!session) {
     return <div>Error: No active session</div>;
   }
@@ -108,8 +230,84 @@ const Game = () => {
   // Find current player
   const currentPlayer = session.players.find((p) => p.id === playerId);
 
+  // Debug logging for session data
+  console.log("Session Data:", {
+    sessionId: session.session_id,
+    phase: session.phase,
+    currentScenario: session.currentScenario,
+    hasCurrentScenario: !!session.currentScenario,
+  });
+
   const currentScenario = session.currentScenario;
   if (!currentScenario) {
+    console.error("No scenario available in session:", session);
+    console.error("Session phase:", session.phase);
+    console.error("Session currentRound:", session.currentRound);
+
+    // Try to fetch the game state directly
+    if (session.session_id) {
+      console.log("Attempting to fetch game state directly...");
+      gameService
+        .getGameState(session.session_id)
+        .then((gameState) => {
+          console.log("Directly fetched game state:", gameState);
+          console.log("Game state phase:", gameState.phase);
+          console.log(
+            "Game state current_scenario:",
+            gameState.current_scenario
+          );
+
+          // If we have a scenario in the game state but not in the session,
+          // update the session directly
+          if (gameState.current_scenario && !session.currentScenario) {
+            console.log(
+              "Found scenario in game state but not in session, updating session directly"
+            );
+
+            // Parse the scenario if it's a string
+            let parsedScenario = gameState.current_scenario;
+            if (typeof parsedScenario === "string") {
+              try {
+                parsedScenario = JSON.parse(parsedScenario);
+                console.log(
+                  "Successfully parsed scenario from string:",
+                  parsedScenario
+                );
+              } catch (e) {
+                console.error("Failed to parse current_scenario:", e);
+                return;
+              }
+            }
+
+            // Update the session directly with the scenario data
+            setCurrentSession((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                currentScenario: {
+                  title: parsedScenario.title
+                    ? parsedScenario.title.replace(/^"|"$/g, "")
+                    : "Untitled Scenario",
+                  description:
+                    parsedScenario.description || "No description available",
+                  consequences:
+                    parsedScenario.consequences || "No consequences specified.",
+                  options: parsedScenario.options
+                    ? parsedScenario.options.map((opt, index) => ({
+                        id: opt.id || `option${index + 1}`,
+                        text: opt.text || `Option ${index + 1}`,
+                      }))
+                    : [],
+                },
+              };
+            });
+          }
+        })
+        .catch((error) => {
+          console.error("Error fetching game state directly:", error);
+        });
+    }
+
     return <div>Error: No scenario available</div>;
   }
 

@@ -11,12 +11,20 @@ import uuid
 from game.state import GameState, Player, GamePhase
 from game.supabase_client import supabase, get_game, get_players, add_player, update_player
 from datetime import datetime, timedelta
+from ai.scenario_generator import scenario_generator
+import json
 
 # Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,  # Changed from INFO to DEBUG
+    level=logging.INFO,  # Changed from DEBUG to INFO
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
+
+# Disable noisy loggers
+logging.getLogger('hpack.hpack').setLevel(logging.WARNING)
+logging.getLogger('httpcore.http2').setLevel(logging.WARNING)
+logging.getLogger('httpx').setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 # Load environment variables
@@ -26,6 +34,7 @@ load_dotenv()
 logger.info("Environment variables loaded:")
 logger.info(f"SUPABASE_URL: {'Set' if os.getenv('SUPABASE_URL') else 'Not set'}")
 logger.info(f"SUPABASE_KEY: {'Set' if os.getenv('SUPABASE_KEY') else 'Not set'}")
+logger.info(f"OPENAI_API_KEY: {'Set' if os.getenv('OPENAI_API_KEY') else 'Not set'}")  # Add OpenAI key check
 
 app = FastAPI(title="Project Oversight API")
 
@@ -58,11 +67,11 @@ timer_tasks: Dict[str, asyncio.Task] = {}
 
 async def check_timer(session_id: str):
     try:
-        logger.info(f"Starting timer check for session {session_id}")
+        # logger.info(f"Starting timer check for session {session_id}")
         while True:
             # Get current game state
             game = await GameState.load(session_id)
-            logger.info(f"Timer check - Game state: {game.dict() if game else 'None'}")
+            # logger.info(f"Timer check - Game state: {game.dict() if game else 'None'}")
             
             if not game:
                 logger.info(f"Game not found for session {session_id}, stopping timer")
@@ -106,6 +115,15 @@ async def check_timer(session_id: str):
         logger.error(f"Error in timer check for session {session_id}: {str(e)}")
         raise
 
+# Add new models for scenario generation
+class ScenarioResponse(BaseModel):
+    title: str
+    description: str
+    options: List[str]
+
+# Store active scenario generation tasks
+scenario_tasks: Dict[str, asyncio.Task] = {}
+
 @app.get("/")
 async def root():
     return {"message": "Welcome to Project Oversight API"}
@@ -119,6 +137,49 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str, player_id: s
             await manager.handle_message(websocket, session_id, data)
     except WebSocketDisconnect:
         await manager.disconnect(session_id, player_id)
+
+@app.websocket("/ws/{session_id}/scenario")
+async def scenario_websocket(websocket: WebSocket, session_id: str):
+    await websocket.accept()
+    try:
+        # Get game state
+        game = await GameState.load(session_id)
+        if not game:
+            await websocket.close(code=1008, reason="Game not found")
+            return
+
+        # Generate scenario title and description with streaming
+        title, description = await scenario_generator.generate_scenario(game.dict())
+        
+        # Send title and description in chunks
+        await websocket.send_json({
+            "type": "scenario_title",
+            "content": title
+        })
+        
+        # Split description into chunks and send
+        chunk_size = 100
+        for i in range(0, len(description), chunk_size):
+            chunk = description[i:i + chunk_size]
+            await websocket.send_json({
+                "type": "scenario_description",
+                "content": chunk
+            })
+            await asyncio.sleep(0.1)  # Small delay between chunks
+        
+        # Send completion message
+        await websocket.send_json({
+            "type": "scenario_complete"
+        })
+        
+        # Keep connection alive for a short time
+        await asyncio.sleep(5)
+        
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected for session {session_id}")
+    except Exception as e:
+        logger.error(f"Error in scenario WebSocket: {str(e)}")
+        await websocket.close(code=1011, reason=str(e))
 
 # Game endpoints
 @app.post("/api/games")
@@ -181,13 +242,15 @@ async def join_game(session_id: str, request: JoinGameRequest):
         
         logger.debug(f"Found game in Supabase: {game_data}")
         
-        # Check current players
+        # Check current active players
         logger.debug("Checking current players...")
         players_data = get_players(session_id)
         logger.debug(f"Current players: {players_data}")
         
-        if len(players_data) >= 4:
-            logger.error(f"Game {session_id} is full with {len(players_data)} players")
+        # Count only active players
+        active_players = [p for p in players_data if p.get("is_active", True)]
+        if len(active_players) >= 4:
+            logger.error(f"Game {session_id} is full with {len(active_players)} active players")
             raise HTTPException(status_code=400, detail="Game is full")
         
         # Create new player
@@ -198,7 +261,8 @@ async def join_game(session_id: str, request: JoinGameRequest):
             id=player_id,
             name=request.player_name,
             role="player",
-            secret_incentive="Player's secret objective"
+            secret_incentive="Player's secret objective",
+            is_active=True
         )
         
         # Add player to game
@@ -210,14 +274,11 @@ async def join_game(session_id: str, request: JoinGameRequest):
             logger.error(f"Failed to add player to Supabase: {str(e)}")
             raise HTTPException(status_code=500, detail="Failed to add player to game")
         
-        # Verify player was added
-        logger.debug("Verifying player was added to Supabase...")
-        players_data = get_players(session_id)
-        logger.debug(f"Updated players list: {players_data}")
-        
+        # Return success response with player info
         return {
             "player_id": player_id,
-            "message": "Joined game successfully"
+            "host_id": game_data.get("host_id"),
+            "message": "Successfully joined game"
         }
     except HTTPException as he:
         logger.error(f"HTTP Exception in join_game: {he.detail}")
@@ -245,6 +306,19 @@ async def get_game_state(session_id: str):
     game_state = await GameState.load(session_id)
     if not game_state:
         raise HTTPException(status_code=404, detail="Game not found")
+    
+    # Ensure current_scenario is properly formatted
+    if game_state.current_scenario:
+        if isinstance(game_state.current_scenario, str):
+            try:
+                game_state.current_scenario = json.loads(game_state.current_scenario)
+            except json.JSONDecodeError:
+                logger.error(f"Failed to parse scenario JSON: {game_state.current_scenario}")
+                game_state.current_scenario = None
+        elif not isinstance(game_state.current_scenario, dict):
+            logger.error(f"Invalid scenario format: {type(game_state.current_scenario)}")
+            game_state.current_scenario = None
+    
     return game_state
 
 @app.post("/api/games/{session_id}/start")
@@ -265,27 +339,30 @@ async def start_game(session_id: str):
             logger.error(f"Not enough players to start game. Current players: {len(game.players)}")
             raise HTTPException(status_code=400, detail="Need at least 2 players to start")
         
-        # Set initial scenario
-        initial_scenario = {
-            "title": "Mysterious Signal From Deep Space",
-            "description": "Our deep space monitoring stations have detected an unusual signal originating from beyond our solar system. Initial analysis suggests it could be artificial in nature. The signal appears to contain complex mathematical sequences that our scientists believe may be an attempt at communication. However, there is no consensus on whether we should respond or what the message might contain.",
-            "consequences": "How we handle this situation could dramatically affect our technological development and potentially our safety if the signal represents a threat.",
-            "options": [
-                {"id": "option1", "text": "Allocate resources to decode the signal but do not respond yet"},
-                {"id": "option2", "text": "Immediately broadcast a response using similar mathematical principles"},
-                {"id": "option3", "text": "Ignore the signal and increase our defensive capabilities"},
-                {"id": "option4", "text": "Share the discovery with the public and crowdsource analysis"}
-            ]
+        # Generate scenario using OpenAI
+        logger.info("Generating scenario using OpenAI...")
+        title, description = await scenario_generator.generate_scenario(game.dict())
+        
+        # Generate voting options
+        logger.info("Generating voting options...")
+        options = await scenario_generator.generate_voting_options(title, description)
+        
+        # Format scenario
+        generated_scenario = {
+            "title": title,
+            "description": description,
+            "consequences": "The council's decision will have far-reaching consequences for our society.",
+            "options": [{"id": f"option{i+1}", "text": option} for i, option in enumerate(options)]
         }
         
-        logger.info(f"Setting initial scenario: {initial_scenario}")
-        game.current_scenario = initial_scenario
+        logger.info(f"Generated scenario: {generated_scenario}")
+        game.current_scenario = generated_scenario
         game.phase = GamePhase.SCENARIO
         
         # Update game in Supabase
         logger.info("Updating game in Supabase...")
         update_data = {
-            "current_scenario": initial_scenario,
+            "current_scenario": json.dumps(generated_scenario),  # Convert to JSON string
             "phase": "scenario",
             "updated_at": datetime.utcnow().isoformat()
         }
@@ -300,11 +377,11 @@ async def start_game(session_id: str):
         
         await game.save()
         
-        # Broadcast a message to all connected clients to check if they should start the timer
+        # Broadcast game started message to all connected clients
         logger.info("Broadcasting game started message to all connected clients")
         await manager.broadcast_to_session({
             "type": "game_started",
-            "scenario": initial_scenario,
+            "scenario": generated_scenario,
             "phase": "scenario"
         }, session_id)
         
@@ -418,6 +495,61 @@ async def update_game_phase(session_id: str, request: Request):
         return {"message": "Game phase updated successfully"}
     except Exception as e:
         logger.error(f"Error updating game phase: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/games/{session_id}/scenario/options")
+async def get_voting_options(session_id: str):
+    try:
+        # Get game state
+        game = await GameState.load(session_id)
+        if not game:
+            raise HTTPException(status_code=404, detail="Game not found")
+            
+        # Get the current scenario from the game state
+        current_scenario = game.current_scenario
+        if not current_scenario:
+            raise HTTPException(status_code=400, detail="No scenario available")
+            
+        # Generate voting options
+        options = await scenario_generator.generate_voting_options(
+            current_scenario.get("title", ""),
+            current_scenario.get("description", "")
+        )
+        
+        # Update the game state with the options
+        current_scenario["options"] = options
+        game.current_scenario = current_scenario
+        await game.save()
+        
+        # Start the timer since we have both scenario and options
+        if not game.timer_running:
+            # Set timer end time to 60 seconds from now
+            end_time = datetime.utcnow().replace(tzinfo=None) + timedelta(seconds=60)
+            
+            # Update timer state in Supabase
+            result = supabase.table("games").update({
+                "timer_end_time": end_time.isoformat(),
+                "timer_running": True,
+                "updated_at": datetime.utcnow().replace(tzinfo=None).isoformat()
+            }).eq("session_id", session_id).execute()
+            
+            if not result.data:
+                logger.error(f"Failed to update timer in Supabase: {result}")
+                raise HTTPException(status_code=500, detail="Failed to update timer in database")
+                
+            # Update local game state
+            game.timer_end_time = end_time
+            game.timer_running = True
+            await game.save()
+            
+            # Start the timer check task
+            if session_id not in timer_tasks or timer_tasks[session_id].done():
+                timer_tasks[session_id] = asyncio.create_task(check_timer(session_id))
+        
+        return {"options": options}
+        
+    except Exception as e:
+        logger.error(f"Error getting voting options: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Clean up timer tasks when the server shuts down

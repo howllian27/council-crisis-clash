@@ -60,11 +60,13 @@ const ScenarioDisplay: React.FC<ScenarioDisplayProps> = ({
       <div className="mb-6">
         <h2 className="text-2xl font-bold mb-2 neon-glow">{title}</h2>
         <p className="text-sm text-gray-400 mb-4">Round {round}</p>
-        <p className="text-gray-300 mb-4">{description}</p>
+        <p className="text-gray-300 mb-4 text-justify leading-relaxed">
+          {description}
+        </p>
         {consequences && (
           <div className="p-4 border border-neon-pink rounded-md bg-neon-pink bg-opacity-5">
             <h3 className="font-semibold text-neon-pink mb-2">Consequences</h3>
-            <p className="text-sm text-gray-300">{consequences}</p>
+            <p className="text-sm text-gray-300 text-justify">{consequences}</p>
           </div>
         )}
       </div>
@@ -103,7 +105,9 @@ const ScenarioDisplay: React.FC<ScenarioDisplayProps> = ({
               >
                 <p className="text-gray-300">{option.text}</p>
                 {option.id === selectedOption && (
-                  <p className="text-neon-pink text-sm mt-2 font-semibold">Your Vote</p>
+                  <p className="text-neon-pink text-sm mt-2 font-semibold">
+                    Your Vote
+                  </p>
                 )}
               </div>
             ))}

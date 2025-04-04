@@ -6,10 +6,10 @@ import React, {
   useCallback,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import { useToast } from "../hooks/use-toast";
-import { gameService, GameState } from "../services/gameService";
+import { toast } from "sonner";
+import { gameService } from "../services/gameService";
 import { v4 as uuidv4 } from "uuid";
-import { Scenario } from "../services/gameService";
+import { GamePhase, Scenario, GameState } from "../types/game";
 
 interface GameSession {
   session_id: string;
@@ -36,7 +36,7 @@ interface GameSession {
   }>;
   currentRound: number;
   phase: string;
-  currentScenario: Scenario;
+  currentScenario: Scenario | null;
   roundStartTime: number;
   timer_running: boolean;
   timer_end_time: string | null;
@@ -59,6 +59,15 @@ interface WebSocketMessage {
   payload: {
     results?: Record<string, string>;
     phase?: string;
+    scenario?: {
+      title: string;
+      description: string;
+      consequences: string;
+      options: Array<{
+        id: string;
+        text: string;
+      }>;
+    };
     [key: string]: unknown;
   };
 }
@@ -79,10 +88,15 @@ interface MultiplayerContextType {
   leaveSession: () => Promise<void>;
   castVote: (optionId: string) => Promise<void>;
   nextRound: () => Promise<void>;
+  scenarioTitle: string;
+  scenarioDescription: string;
+  scenarioOptions: string[];
+  isScenarioComplete: boolean;
+  setCurrentSession: React.Dispatch<React.SetStateAction<GameSession | null>>;
 }
 
-const MultiplayerContext = createContext<MultiplayerContextType | undefined>(
-  undefined
+export const MultiplayerContext = createContext<MultiplayerContextType | null>(
+  null
 );
 
 export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
@@ -100,9 +114,13 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
   const [subscription, setSubscription] = useState<{
     unsubscribe: () => void;
   } | null>(null);
+  const [scenarioTitle, setScenarioTitle] = useState<string>("");
+  const [scenarioDescription, setScenarioDescription] = useState<string>("");
+  const [scenarioOptions, setScenarioOptions] = useState<string[]>([]);
+  const [isScenarioComplete, setIsScenarioComplete] = useState<boolean>(false);
+  const [scenarioSocket, setScenarioSocket] = useState<WebSocket | null>(null);
 
   const navigate = useNavigate();
-  const { toast } = useToast();
 
   const isHost =
     !!currentSession && !!playerId && currentSession.host_id === playerId;
@@ -144,10 +162,33 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
             "payload" in gameState
           ) {
             const message = gameState as unknown as WebSocketMessage;
+
+            // Handle game started message with scenario
+            if (message.type === "game_started" && message.payload.scenario) {
+              console.log(
+                "Game started with scenario:",
+                message.payload.scenario
+              );
+              setCurrentSession((prev) => {
+                if (!prev) return prev;
+                return {
+                  ...prev,
+                  phase: "scenario",
+                  currentScenario: {
+                    title: message.payload.scenario.title,
+                    description: message.payload.scenario.description,
+                    consequences: message.payload.scenario.consequences,
+                    options: message.payload.scenario.options,
+                  },
+                };
+              });
+              return; // Exit early to prevent further state updates
+            }
+
+            // Handle voting complete message
             if (message.type === "voting_complete") {
               console.log("Voting complete, transitioning to results phase");
               setGamePhase("results");
-              // Update session state with voting results
               setCurrentSession((prev) => {
                 if (!prev) return prev;
                 return {
@@ -210,16 +251,22 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
                 })
                 .catch((error) => {
                   console.error("Error starting timer:", error);
-                  toast({
-                    title: "Error",
-                    description: "Failed to start timer. Please try again.",
-                    variant: "destructive",
-                  });
+                  toast.error("Failed to start timer. Please try again.");
                 });
             }
             navigate(
               `/game?sessionId=${currentSession.session_id}&playerId=${playerId}`
             );
+
+            // Update the session phase immediately
+            setCurrentSession((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                phase: "scenario",
+              };
+            });
+
             return; // Exit early to prevent state update
           }
 
@@ -238,106 +285,175 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
                 })
                 .catch((error) => {
                   console.error("Error stopping timer:", error);
-                  toast({
-                    title: "Error",
-                    description: "Failed to stop timer. Please try again.",
-                    variant: "destructive",
-                  });
+                  toast.error("Failed to stop timer. Please try again.");
                 });
             }
+
+            // Update the session phase immediately
+            setCurrentSession((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                phase: "results",
+              };
+            });
           }
 
-          setCurrentSession((prev) => {
-            if (!prev) return prev;
+          // Fetch the latest game state to ensure we have the most up-to-date data
+          gameService
+            .getGameState(currentSession.session_id)
+            .then((latestGameState) => {
+              console.log("Fetched latest game state:", latestGameState);
 
-            // Get the current scenario from game state or use a default
-            const currentScenario = gameState.current_scenario || {
-              title: "Mysterious Signal From Deep Space",
-              description:
-                "Our deep space monitoring stations have detected an unusual signal originating from beyond our solar system. Initial analysis suggests it could be artificial in nature. The signal appears to contain complex mathematical sequences that our scientists believe may be an attempt at communication. However, there is no consensus on whether we should respond or what the message might contain.",
-              consequences:
-                "How we handle this situation could dramatically affect our technological development and potentially our safety if the signal represents a threat.",
-              options: [
-                {
-                  id: "option1",
-                  text: "Allocate resources to decode the signal but do not respond yet",
-                },
-                {
-                  id: "option2",
-                  text: "Immediately broadcast a response using similar mathematical principles",
-                },
-                {
-                  id: "option3",
-                  text: "Ignore the signal and increase our defensive capabilities",
-                },
-                {
-                  id: "option4",
-                  text: "Share the discovery with the public and crowdsource analysis",
-                },
-              ],
-            };
+              // Parse current_scenario if it's a string
+              let parsedScenario = latestGameState.current_scenario;
+              if (typeof parsedScenario === "string") {
+                try {
+                  parsedScenario = JSON.parse(parsedScenario);
+                  console.log(
+                    "Successfully parsed scenario from string:",
+                    parsedScenario
+                  );
+                } catch (e) {
+                  console.error("Failed to parse current_scenario:", e);
+                  parsedScenario = null;
+                }
+              } else if (parsedScenario) {
+                console.log("Scenario is already an object:", parsedScenario);
+              } else {
+                console.log("No scenario available in game state");
+              }
 
-            console.log("Updating session state:", {
-              previousPhase: prev.phase,
-              newPhase: gameState.phase,
-              previousTimerRunning: prev.timer_running,
-              newTimerRunning: gameState.timer_running,
-              previousTimerEndTime: prev.timer_end_time,
-              newTimerEndTime: gameState.timer_end_time,
-              timestamp: new Date().toISOString(),
+              // If we have a scenario in the game state but not in the session, update the session directly
+              if (parsedScenario && !currentSession.currentScenario) {
+                console.log(
+                  "Found scenario in game state but not in session, updating session directly"
+                );
+                setCurrentSession((prev) => {
+                  if (!prev) return prev;
+                  return {
+                    ...prev,
+                    currentScenario: {
+                      title: parsedScenario.title
+                        ? parsedScenario.title.replace(/^"|"$/g, "")
+                        : "Untitled Scenario",
+                      description:
+                        parsedScenario.description ||
+                        "No description available",
+                      consequences:
+                        parsedScenario.consequences ||
+                        "No consequences specified.",
+                      options: parsedScenario.options
+                        ? parsedScenario.options.map((opt, index) => ({
+                            id: opt.id || `option${index + 1}`,
+                            text: opt.text || `Option ${index + 1}`,
+                          }))
+                        : [],
+                    },
+                  };
+                });
+                return; // Exit early to prevent further state updates
+              }
+
+              setCurrentSession((prev) => {
+                if (!prev) return prev;
+
+                console.log("Updating session state with latest game state:", {
+                  previousPhase: prev.phase,
+                  newPhase: latestGameState.phase,
+                  previousTimerRunning: prev.timer_running,
+                  newTimerRunning: latestGameState.timer_running,
+                  previousTimerEndTime: prev.timer_end_time,
+                  newTimerEndTime: latestGameState.timer_end_time,
+                  currentScenario: parsedScenario,
+                  timestamp: new Date().toISOString(),
+                });
+
+                // Create the updated session
+                const updatedSession = {
+                  ...prev,
+                  players: Object.values(latestGameState.players).map(
+                    (player) => ({
+                      id: player.id,
+                      name: player.name,
+                      role: player.role,
+                      isReady: true,
+                      hasVoted: player.has_voted,
+                      isEliminated: player.is_eliminated,
+                      secretObjective: {
+                        description: player.secret_incentive,
+                        isCompleted: false,
+                        progress: 0,
+                        target: 3,
+                      },
+                    })
+                  ),
+                  resources: [
+                    {
+                      type: "tech",
+                      value: latestGameState.resources.tech,
+                      maxValue: 100,
+                    },
+                    {
+                      type: "manpower",
+                      value: latestGameState.resources.manpower,
+                      maxValue: 100,
+                    },
+                    {
+                      type: "economy",
+                      value: latestGameState.resources.economy,
+                      maxValue: 100,
+                    },
+                    {
+                      type: "happiness",
+                      value: latestGameState.resources.happiness,
+                      maxValue: 100,
+                    },
+                    {
+                      type: "trust",
+                      value: latestGameState.resources.trust,
+                      maxValue: 100,
+                    },
+                  ],
+                  currentRound: latestGameState.current_round,
+                  phase: latestGameState.phase,
+                  currentScenario: parsedScenario
+                    ? {
+                        title: parsedScenario.title
+                          ? parsedScenario.title.replace(/^"|"$/g, "")
+                          : "Untitled Scenario",
+                        description:
+                          parsedScenario.description ||
+                          "No description available",
+                        consequences:
+                          parsedScenario.consequences ||
+                          "No consequences specified.",
+                        options: parsedScenario.options
+                          ? parsedScenario.options.map((opt, index) => ({
+                              id: opt.id || `option${index + 1}`,
+                              text: opt.text || `Option ${index + 1}`,
+                            }))
+                          : [],
+                      }
+                    : null,
+                  roundStartTime: latestGameState.roundStartTime || Date.now(),
+                  timer_running: latestGameState.timer_running,
+                  timer_end_time: latestGameState.timer_end_time,
+                };
+
+                console.log("Updated session with scenario:", {
+                  hasScenario: !!updatedSession.currentScenario,
+                  scenarioTitle: updatedSession.currentScenario?.title,
+                  scenarioOptions:
+                    updatedSession.currentScenario?.options?.length,
+                });
+
+                return updatedSession;
+              });
+            })
+            .catch((error) => {
+              console.error("Error fetching latest game state:", error);
             });
-
-            return {
-              ...prev,
-              players: Object.values(gameState.players).map((player) => ({
-                id: player.id,
-                name: player.name,
-                role: player.role,
-                isReady: true,
-                hasVoted: player.has_voted,
-                isEliminated: player.is_eliminated,
-                secretObjective: {
-                  description: player.secret_incentive,
-                  isCompleted: false,
-                  progress: 0,
-                  target: 3,
-                },
-              })),
-              resources: [
-                {
-                  type: "tech",
-                  value: gameState.resources.tech,
-                  maxValue: 100,
-                },
-                {
-                  type: "manpower",
-                  value: gameState.resources.manpower,
-                  maxValue: 100,
-                },
-                {
-                  type: "economy",
-                  value: gameState.resources.economy,
-                  maxValue: 100,
-                },
-                {
-                  type: "happiness",
-                  value: gameState.resources.happiness,
-                  maxValue: 100,
-                },
-                {
-                  type: "trust",
-                  value: gameState.resources.trust,
-                  maxValue: 100,
-                },
-              ],
-              currentRound: gameState.current_round,
-              phase: gameState.phase,
-              currentScenario,
-              roundStartTime: gameState.roundStartTime || Date.now(),
-              timer_running: gameState.timer_running,
-              timer_end_time: gameState.timer_end_time,
-            };
-          });
         }
       );
 
@@ -386,31 +502,7 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
           { type: "trust", value: 70, maxValue: 100 },
         ],
         currentRound: 1,
-        currentScenario: {
-          title: "Mysterious Signal From Deep Space",
-          description:
-            "Our deep space monitoring stations have detected an unusual signal originating from beyond our solar system. Initial analysis suggests it could be artificial in nature. The signal appears to contain complex mathematical sequences that our scientists believe may be an attempt at communication. However, there is no consensus on whether we should respond or what the message might contain.",
-          consequences:
-            "How we handle this situation could dramatically affect our technological development and potentially our safety if the signal represents a threat.",
-          options: [
-            {
-              id: "option1",
-              text: "Allocate resources to decode the signal but do not respond yet",
-            },
-            {
-              id: "option2",
-              text: "Immediately broadcast a response using similar mathematical principles",
-            },
-            {
-              id: "option3",
-              text: "Ignore the signal and increase our defensive capabilities",
-            },
-            {
-              id: "option4",
-              text: "Share the discovery with the public and crowdsource analysis",
-            },
-          ],
-        },
+        currentScenario: null,
         roundStartTime: Date.now(),
         timer_running: false,
         timer_end_time: null,
@@ -422,10 +514,9 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
       // Navigate to the lobby
       navigate("/lobby");
 
-      toast({
-        title: "Session Created",
-        description: `Your session code is ${response.session_id}`,
-      });
+      toast.success(
+        `Session created. Your session code is ${response.session_id}`
+      );
     } catch (err) {
       console.error("Error creating session:", err);
       setError("Failed to create session. Please try again.");
@@ -487,31 +578,19 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
           { type: "trust", value: gameState.resources.trust, maxValue: 100 },
         ],
         currentRound: gameState.current_round,
-        currentScenario: gameState.current_scenario || {
-          title: "Mysterious Signal From Deep Space",
-          description:
-            "Our deep space monitoring stations have detected an unusual signal originating from beyond our solar system. Initial analysis suggests it could be artificial in nature. The signal appears to contain complex mathematical sequences that our scientists believe may be an attempt at communication. However, there is no consensus on whether we should respond or what the message might contain.",
-          consequences:
-            "How we handle this situation could dramatically affect our technological development and potentially our safety if the signal represents a threat.",
-          options: [
-            {
-              id: "option1",
-              text: "Allocate resources to decode the signal but do not respond yet",
-            },
-            {
-              id: "option2",
-              text: "Immediately broadcast a response using similar mathematical principles",
-            },
-            {
-              id: "option3",
-              text: "Ignore the signal and increase our defensive capabilities",
-            },
-            {
-              id: "option4",
-              text: "Share the discovery with the public and crowdsource analysis",
-            },
-          ],
-        },
+        currentScenario: gameState.current_scenario
+          ? {
+              title: gameState.current_scenario.title,
+              description: gameState.current_scenario.description,
+              consequences:
+                gameState.current_scenario.consequences ||
+                "No consequences specified.",
+              options: gameState.current_scenario.options.map((opt, index) => ({
+                id: opt.id || `option${index + 1}`,
+                text: opt.text,
+              })),
+            }
+          : null,
         roundStartTime: Date.now(),
         timer_running: false,
         timer_end_time: null,
@@ -523,10 +602,7 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
       // Navigate to the lobby
       navigate("/lobby");
 
-      toast({
-        title: "Joined Session",
-        description: "You have successfully joined the game session",
-      });
+      toast.success("You have successfully joined the game session");
     } catch (err) {
       console.error("Error joining session:", err);
       setError(
@@ -600,11 +676,7 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
         })
         .catch((error) => {
           console.error("Error updating game phase:", error);
-          toast({
-            title: "Error",
-            description: "Failed to update game phase. Please try again.",
-            variant: "destructive",
-          });
+          toast.error("Failed to update game phase. Please try again.");
         });
     }
   }, [currentSession?.session_id, toast]);
@@ -668,11 +740,7 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
         }
       } catch (error) {
         console.error("Error casting vote:", error);
-        toast({
-          title: "Error",
-          description: "Failed to record your vote. Please try again.",
-          variant: "destructive",
-        });
+        toast.error("Failed to record your vote. Please try again.");
       }
     },
     [currentSession, playerId, toast]
@@ -689,6 +757,103 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
       setError("Failed to start next round. Please try again.");
     }
   };
+
+  const handlePhaseChange = async (newPhase: GamePhase) => {
+    if (!currentSession) return;
+
+    try {
+      // Update game phase in Supabase
+      await gameService.updateGamePhase(currentSession.session_id, newPhase);
+
+      // If transitioning to scenario phase, start scenario generation
+      if (newPhase === GamePhase.SCENARIO) {
+        // Reset scenario state
+        setScenarioTitle("");
+        setScenarioDescription("");
+        setScenarioOptions([]);
+        setIsScenarioComplete(false);
+
+        // Connect to scenario WebSocket
+        const ws = new WebSocket(
+          `ws://localhost:8000/ws/${currentSession.session_id}/scenario`
+        );
+
+        ws.onmessage = (event) => {
+          const data = JSON.parse(event.data);
+
+          switch (data.type) {
+            case "scenario_title":
+              setScenarioTitle(data.content);
+              break;
+            case "scenario_description":
+              setScenarioDescription((prev) => prev + data.content);
+              break;
+            case "scenario_complete":
+              setIsScenarioComplete(true);
+              // Request voting options
+              requestVotingOptions();
+              break;
+          }
+        };
+
+        ws.onerror = (error) => {
+          console.error("Scenario WebSocket error:", error);
+          toast.error("Failed to generate scenario");
+        };
+
+        ws.onclose = () => {
+          console.log("Scenario WebSocket closed");
+        };
+
+        setScenarioSocket(ws);
+      }
+
+      // If transitioning to results phase, stop the timer
+      if (newPhase === GamePhase.RESULTS) {
+        await gameService.stopTimer(currentSession.session_id);
+      }
+
+      setGamePhase(newPhase);
+    } catch (error) {
+      console.error("Error updating game phase:", error);
+      toast.error("Failed to update game phase");
+    }
+  };
+
+  const requestVotingOptions = async () => {
+    if (!currentSession) return;
+
+    try {
+      const response = await fetch(
+        `http://localhost:8000/api/games/${currentSession.session_id}/scenario/options`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to get voting options");
+      }
+
+      const data = await response.json();
+      setScenarioOptions(data.options);
+    } catch (error) {
+      console.error("Error getting voting options:", error);
+      toast.error("Failed to get voting options");
+    }
+  };
+
+  // Clean up WebSocket connection when component unmounts
+  useEffect(() => {
+    return () => {
+      if (scenarioSocket) {
+        scenarioSocket.close();
+      }
+    };
+  }, [scenarioSocket]);
 
   return (
     <MultiplayerContext.Provider
@@ -708,6 +873,11 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
         leaveSession,
         castVote,
         nextRound,
+        scenarioTitle,
+        scenarioDescription,
+        scenarioOptions,
+        isScenarioComplete,
+        setCurrentSession,
       }}
     >
       {children}
