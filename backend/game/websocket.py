@@ -270,25 +270,6 @@ class GameWebSocketManager:
                             game.voting_results[round_key] = {}
                         game.voting_results[round_key][player_id] = vote
 
-                        # Check if all players have voted
-                        if len(game.voting_results[round_key]) == len(game.players):
-                            # Process voting results and update game state
-                            game.phase = GamePhase.RESULTS
-                            await game.save()
-                            
-                            # Cancel the timer if it's running
-                            if session_id in self.timer_tasks and not self.timer_tasks[session_id].done():
-                                self.timer_tasks[session_id].cancel()
-                            
-                            # Broadcast voting results and phase change
-                            await self.broadcast_to_session({
-                                "type": "voting_complete",
-                                "payload": {
-                                    "results": game.voting_results[round_key],
-                                    "phase": "results"
-                                }
-                            }, session_id)
-
         except WebSocketDisconnect:
             await self.disconnect(session_id, websocket.client.host)
             # Cancel timer task if it exists
