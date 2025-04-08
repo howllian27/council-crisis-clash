@@ -47,13 +47,13 @@ class ScenarioGenerator:
             logger.info("Making OpenAI API call...")
             # Use async API call
             response = await self.client.chat.completions.create(
-                model="gpt-4",
+                model="gpt-4o",
                 messages=[
                     {"role": "system", "content": "You are a creative game master generating scenarios for a futuristic government council game. Create engaging, morally complex situations that test the players' decision-making abilities but do so within 3-4 engaging sentences."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.8,
-                max_tokens=1000
+                max_tokens=10000
             )
             logger.info("OpenAI API call successful, processing response...")
             
@@ -119,13 +119,13 @@ class ScenarioGenerator:
             
             # Use async API call
             response = await self.client.chat.completions.create(
-                model="gpt-4",
+                model="gpt-4o",
                 messages=[
                     {"role": "system", "content": "You are a game master creating voting options for a government council game. Create exactly 4 distinct options that represent different approaches to the scenario."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.7,
-                max_tokens=500
+                max_tokens=10000
             )
             
             # Parse the options from the response
