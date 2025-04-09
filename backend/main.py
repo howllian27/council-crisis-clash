@@ -124,6 +124,9 @@ class ScenarioResponse(BaseModel):
 # Store active scenario generation tasks
 scenario_tasks: Dict[str, asyncio.Task] = {}
 
+# Add a lock for outcome generation to prevent multiple generations
+outcome_generation_locks: Dict[str, asyncio.Lock] = {}
+
 @app.get("/")
 async def root():
     return {"message": "Welcome to Project Oversight API"}
@@ -540,57 +543,99 @@ async def get_voting_outcome(session_id: str):
         if not current_scenario:
             logger.error(f"No scenario available for session {session_id}")
             raise HTTPException(status_code=400, detail="No scenario available")
+        
+        # Check if outcome is already generated (first check)
+        if "outcome" in current_scenario and current_scenario["outcome"]:
+            logger.info(f"Outcome already exists for session {session_id} (initial check), returning existing.")
+            return {"outcome": current_scenario["outcome"]}
+        
+        # Create a lock for this session if it doesn't exist
+        if session_id not in outcome_generation_locks:
+            outcome_generation_locks[session_id] = asyncio.Lock()
+        
+        # Use the lock to ensure only one outcome is generated
+        logger.info(f"Attempting to acquire outcome generation lock for session {session_id}")
+        async with outcome_generation_locks[session_id]:
+            logger.info(f"Acquired outcome generation lock for session {session_id}")
+
+            # --- Reload game state *inside* the lock to get the latest data ---
+            game = await GameState.load(session_id)
+            if not game or not game.current_scenario:
+                 logger.error(f"Game or scenario disappeared while holding lock for session {session_id}")
+                 raise HTTPException(status_code=500, detail="Game state changed unexpectedly during lock")
+            current_scenario = game.current_scenario # Update local variable with latest data
+            # --- End reload ---
+
+            # Check again if outcome was generated while waiting for the lock (second check, now more reliable)
+            if "outcome" in current_scenario and current_scenario["outcome"]:
+                logger.info(f"Outcome generated while waiting for lock for session {session_id}, returning existing.")
+                return {"outcome": current_scenario["outcome"]}
+                
+            logger.info(f"Proceeding with outcome generation for session {session_id}")
+            # Get the voting results for the current round
+            round_key = str(game.current_round)
+            voting_results = game.voting_results.get(round_key, {})
             
-        # Get the voting results for the current round
-        round_key = str(game.current_round)
-        voting_results = game.voting_results.get(round_key, {})
-        
-        logger.info(f"Voting results for round {round_key}: {voting_results}")
-        
-        if not voting_results:
-            # Try to get votes from the database
-            votes = get_votes(session_id, game.current_round)
-            if votes.data:
-                # Convert database votes to voting_results format
-                voting_results = {vote["player_id"]: vote["vote"] for vote in votes.data}
-                # Update game state with the votes
-                game.voting_results[round_key] = voting_results
-                await game.save()
-            else:
-                logger.error(f"No voting results available for session {session_id}, round {round_key}")
-                raise HTTPException(status_code=400, detail="No voting results available")
+            logger.info(f"Voting results for round {round_key}: {voting_results}")
             
-        # Count votes for each option
-        vote_counts = {}
-        for player_id, vote in voting_results.items():
-            if vote not in vote_counts:
-                vote_counts[vote] = 0
-            vote_counts[vote] += 1
+            if not voting_results:
+                # Try to get votes from the database
+                votes = get_votes(session_id, game.current_round)
+                if votes.data:
+                    # Convert database votes to voting_results format
+                    # Ensure vote is always a string to prevent unhashable dict errors
+                    voting_results = {vote["player_id"]: str(vote["vote"]) for vote in votes.data}
+                    # Update game state with the votes
+                    game.voting_results[round_key] = voting_results
+                    # No need to save here, will be saved after outcome generation
+                else:
+                    logger.error(f"No voting results available for session {session_id}, round {round_key}")
+                    raise HTTPException(status_code=400, detail="No voting results available")
+                
+            # Count votes for each option
+            vote_counts = {}
+            for player_id, vote in voting_results.items():
+                # Ensure vote is a string to prevent unhashable dict errors
+                vote_str = str(vote)
+                if vote_str not in vote_counts:
+                    vote_counts[vote_str] = 0
+                vote_counts[vote_str] += 1
+                
+            logger.info(f"Vote counts: {vote_counts}")
+                
+            # Find the winning option
+            if not vote_counts: # Handle case where there are no votes somehow?
+                logger.error(f"No votes were cast for session {session_id}, round {round_key}. Cannot determine winner.")
+                raise HTTPException(status_code=400, detail="No votes cast, cannot determine outcome.")
+            winning_option = max(vote_counts.items(), key=lambda x: x[1])[0]
+            logger.info(f"Winning option: {winning_option}")
             
-        logger.info(f"Vote counts: {vote_counts}")
+            # Generate outcome based on the scenario and winning option
+            outcome = await scenario_generator.generate_voting_outcome(
+                current_scenario.get("title", ""),
+                current_scenario.get("description", ""),
+                winning_option,  # This is now guaranteed to be a string
+                vote_counts
+            )
             
-        # Find the winning option
-        winning_option = max(vote_counts.items(), key=lambda x: x[1])[0]
-        logger.info(f"Winning option: {winning_option}")
-        
-        # Generate outcome based on the scenario and winning option
-        outcome = await scenario_generator.generate_voting_outcome(
-            current_scenario.get("title", ""),
-            current_scenario.get("description", ""),
-            winning_option,
-            vote_counts
-        )
-        
-        # Update the game state with the outcome
-        current_scenario["outcome"] = outcome
-        game.current_scenario = current_scenario
-        await game.save()
-        
-        return {"outcome": outcome}
+            # Update the game state with the outcome
+            current_scenario["outcome"] = outcome
+            game.current_scenario = current_scenario # Ensure game object has updated scenario
+            logger.info(f"Saving generated outcome for session {session_id}")
+            await game.save() # Save the game state with the new outcome
+            logger.info(f"Outcome saved for session {session_id}. Releasing lock.")
+            
+            # --- Consider broadcasting the outcome via WebSocket here ---
+            # await manager.broadcast_to_session(session_id, {"type": "outcome_generated", "payload": {"outcome": outcome}})
+            
+            return {"outcome": outcome}
+        # Lock is released automatically here
     except Exception as e:
         logger.error(f"Error generating voting outcome: {str(e)}")
         logger.error(f"Error type: {type(e)}")
-        logger.error(f"Error details: {e.__dict__}")
+        # Log more details if possible, e.g., traceback
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error generating voting outcome: {str(e)}")
 
 # Clean up timer tasks when the server shuts down
