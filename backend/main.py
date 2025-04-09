@@ -342,6 +342,11 @@ async def start_game(session_id: str):
             logger.error(f"Not enough players to start game. Current players: {len(game.players)}")
             raise HTTPException(status_code=400, detail="Need at least 2 players to start")
         
+        # Increment round number if we're in RESULTS phase
+        if game.phase == GamePhase.RESULTS:
+            game.current_round += 1
+            logger.info(f"Incremented round number to: {game.current_round}")
+        
         # Generate scenario using OpenAI
         logger.info("Generating scenario using OpenAI...")
         title, description = await scenario_generator.generate_scenario(game.dict())
@@ -367,6 +372,7 @@ async def start_game(session_id: str):
         update_data = {
             "current_scenario": json.dumps(generated_scenario),  # Convert to JSON string
             "phase": "scenario",
+            "current_round": game.current_round,  # Add round number to update
             "updated_at": datetime.utcnow().isoformat()
         }
         logger.info(f"Update data: {update_data}")
@@ -385,7 +391,8 @@ async def start_game(session_id: str):
         await manager.broadcast_to_session({
             "type": "game_started",
             "scenario": generated_scenario,
-            "phase": "scenario"
+            "phase": "scenario",
+            "current_round": game.current_round  # Add round number to broadcast
         }, session_id)
         
         # Check if we should start the timer now

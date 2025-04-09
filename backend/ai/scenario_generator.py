@@ -29,6 +29,8 @@ class ScenarioGenerator:
             # Initialize the client with async support
             self.client = openai.AsyncOpenAI(api_key=api_key)
             logger.info("OpenAI client initialized successfully")
+            # Initialize conversation history dictionary to store messages for each game session
+            self.conversation_history = {}
         except Exception as e:
             logger.error("Failed to initialize OpenAI client: %s", str(e))
             logger.error("Error type: %s", type(e))
@@ -40,18 +42,51 @@ class ScenarioGenerator:
         Generate a scenario title and description.
         Returns a tuple of (title, description).
         """
-        prompt = self._create_scenario_prompt(game_state)
-        logger.info("Generating scenario with prompt: %s", prompt)
+        session_id = game_state.get('session_id')
+        round_num = game_state.get('current_round', 1)
+        
+        # Get or initialize conversation history for this session
+        if session_id not in self.conversation_history:
+            self.conversation_history[session_id] = [
+                {"role": "system", "content": "You are a creative game master generating scenarios for a futuristic government council game. Create engaging, morally complex situations that test the players' decision-making abilities but do so within 3-4 engaging sentences."}
+            ]
+        
+        # Get the current conversation history
+        messages = self.conversation_history[session_id]
+        
+        # Add the current game state context to the conversation
+        context_prompt = self._create_scenario_prompt(game_state)
+        
+        # Check if we have a previous outcome to include in the context
+        previous_outcome = None
+        if round_num > 1 and 'current_scenario' in game_state and game_state['current_scenario']:
+            if isinstance(game_state['current_scenario'], str):
+                try:
+                    scenario_data = json.loads(game_state['current_scenario'])
+                    if 'outcome' in scenario_data:
+                        previous_outcome = scenario_data['outcome']
+                except json.JSONDecodeError:
+                    logger.error(f"Failed to parse scenario JSON: {game_state['current_scenario']}")
+            elif isinstance(game_state['current_scenario'], dict) and 'outcome' in game_state['current_scenario']:
+                previous_outcome = game_state['current_scenario']['outcome']
+        
+        # Add the user prompt to generate a new scenario
+        user_prompt = f"Generate a new crisis for round {round_num} based on previous choices."
+        if previous_outcome:
+            user_prompt += f"\n\nPrevious outcome: {previous_outcome}"
+        
+        # Add the context and user prompt to the messages
+        messages.append({"role": "user", "content": context_prompt})
+        messages.append({"role": "user", "content": user_prompt})
+        
+        logger.info(f"Generating scenario for session {session_id}, round {round_num}")
         
         try:
             logger.info("Making OpenAI API call...")
-            # Use async API call
+            # Use async API call with the full conversation history
             response = await self.client.chat.completions.create(
                 model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "You are a creative game master generating scenarios for a futuristic government council game. Create engaging, morally complex situations that test the players' decision-making abilities but do so within 3-4 engaging sentences."},
-                    {"role": "user", "content": prompt}
-                ],
+                messages=messages,
                 temperature=0.8,
                 max_tokens=10000
             )
@@ -84,6 +119,9 @@ class ScenarioGenerator:
             
             logger.info(f"Generated scenario title: {title}")
             logger.info(f"Generated scenario description: {description}")
+            
+            # Add the assistant's response to the conversation history
+            messages.append({"role": "assistant", "content": f"Scenario: {title}\n{description}"})
             
             return title, description
             
@@ -243,6 +281,12 @@ class ScenarioGenerator:
             outcome = response.choices[0].message.content.strip()
             logger.info(f"Generated voting outcome: {outcome}")
             
+            # Add the outcome to the conversation history for all sessions
+            # This ensures that the outcome is available for future scenario generation
+            for session_id in self.conversation_history:
+                self.conversation_history[session_id].append({"role": "user", "content": f"Option {winning_option}"})
+                self.conversation_history[session_id].append({"role": "assistant", "content": f"Outcome: {outcome}"})
+            
             return outcome
             
         except Exception as e:
@@ -254,6 +298,14 @@ class ScenarioGenerator:
             
     def _create_fallback_outcome(self) -> str:
         return "The council's decision led to mixed results. Some resources were improved while others suffered. The situation remains unresolved, and the council must prepare for future challenges."
+    
+    def clear_conversation_history(self, session_id: str):
+        """
+        Clear the conversation history for a specific session.
+        """
+        if session_id in self.conversation_history:
+            del self.conversation_history[session_id]
+            logger.info(f"Cleared conversation history for session {session_id}")
 
 # Create a singleton instance
 scenario_generator = ScenarioGenerator() 

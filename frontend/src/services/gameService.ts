@@ -526,11 +526,17 @@ export const gameService = {
   ): Promise<void> {
     console.log("Recording vote:", { sessionId, playerId, option });
     try {
+      // Get the current game state to get the current round
+      const gameState = await this.getGameState(sessionId);
+      const currentRound = gameState.current_round;
+
+      console.log(`Recording vote for round ${currentRound}`);
+
       const { error } = await supabase.from("votes").insert({
         session_id: sessionId,
         player_id: playerId,
         vote: option,
-        round: 1,
+        round: currentRound,
       });
 
       if (error) {
