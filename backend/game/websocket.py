@@ -35,7 +35,7 @@ class GameWebSocketManager:
                     del self.timer_tasks[session_id]
         logger.info(f"Player {player_id} disconnected from session {session_id}")
 
-    async def broadcast_to_session(self, message: dict, session_id: str):
+    async def broadcast_to_session(self, session_id: str, message: dict):
         if session_id in self.active_connections:
             for connection in self.active_connections[session_id].values():
                 await connection.send_json(message)
@@ -72,11 +72,11 @@ class GameWebSocketManager:
         else:
             logger.info(f"Not all players connected for session {session_id}, waiting for more players")
             # Broadcast a message to all connected clients about waiting for more players
-            await self.broadcast_to_session({
+            await self.broadcast_to_session(session_id, {
                 "type": "waiting_for_players",
                 "connected": connected_players,
                 "total": total_players
-            }, session_id)
+            })
 
     async def start_timer(self, session_id: str):
         """Start a timer for a specific session."""
@@ -98,7 +98,7 @@ class GameWebSocketManager:
         logger.info(f"Created new timer task for session {session_id}")
         
         # Broadcast timer started message
-        await self.broadcast_to_session({"type": "timer_started", "duration": 60}, session_id)
+        await self.broadcast_to_session(session_id, {"type": "timer_started", "duration": 60})
         logger.info(f"Broadcasted timer started message for session {session_id}")
 
     async def check_timer(self, session_id: str):
@@ -137,7 +137,7 @@ class GameWebSocketManager:
                         logger.info(f"Game phase updated to {game.phase}")
                         
                         # Broadcast phase change to all connected clients
-                        await self.broadcast_to_session({"type": "phase_change", "phase": "results"}, session_id)
+                        await self.broadcast_to_session(session_id, {"type": "phase_change", "phase": "results"})
                         logger.info(f"Broadcasted phase change to results for session {session_id}")
                     else:
                         logger.error(f"Game not found for session {session_id}, cannot transition to results phase")
@@ -162,7 +162,7 @@ class GameWebSocketManager:
                 "type": "timer_update",
                 "remaining_seconds": remaining_seconds
             }
-            await self.broadcast_to_session(message, session_id)
+            await self.broadcast_to_session(session_id, message)
 
     async def end_timer(self, session_id: str):
         logger.info(f"Ending timer for session {session_id}")
@@ -183,7 +183,7 @@ class GameWebSocketManager:
                 
             # Broadcast phase change
             logger.info(f"Broadcasting phase change to results for session {session_id}")
-            await self.broadcast_to_session({"type": "phase_change", "phase": "results"}, session_id)
+            await self.broadcast_to_session(session_id, {"type": "phase_change", "phase": "results"})
         else:
             logger.error(f"Game not found for session {session_id}, cannot end timer")
 
@@ -211,13 +211,13 @@ class GameWebSocketManager:
                     })
                     
                     if success:
-                        await self.broadcast_to_session({
+                        await self.broadcast_to_session(session_id, {
                             "type": "player_joined",
                             "payload": {
                                 "player_id": player_id,
                                 "player_name": player_name
                             }
-                        }, session_id)
+                        })
                         
                         # Check if we should start the timer
                         await self.check_and_start_timer(session_id)
@@ -250,13 +250,13 @@ class GameWebSocketManager:
                     # Start timer
                     await self.start_timer(session_id)
 
-                    await self.broadcast_to_session({
+                    await self.broadcast_to_session(session_id, {
                         "type": "game_started",
                         "payload": {
                             "scenario": scenario,
                             "players": list(game.players.values())
                         }
-                    }, session_id)
+                    })
 
             elif message_type == "vote":
                 # Handle player voting

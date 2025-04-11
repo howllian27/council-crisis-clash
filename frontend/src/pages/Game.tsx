@@ -29,14 +29,16 @@ const Game = () => {
     nextRound,
     leaveSession,
     setCurrentSession,
+    isLoading,
+    loadingMessage,
+    setIsLoading,
+    setLoadingMessage,
   } = useMultiplayer();
 
   // Debug mode state to bypass session check for direct navigation
   const [debugSession, setDebugSession] = useState(null);
   const [debugMode] = useState(import.meta.env.DEV);
   const [outcome, setOutcome] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState("Loading...");
   const [voteCounts, setVoteCounts] = useState<VoteCounts>({});
 
   // Add debug logging for gamePhase
@@ -130,8 +132,6 @@ const Game = () => {
       }
 
       console.log("No outcome in session, fetching from API...");
-      setIsLoading(true);
-      setLoadingMessage("Generating outcome...");
 
       // Call the backend API to generate the outcome
       fetch(
@@ -152,14 +152,12 @@ const Game = () => {
         .then((data) => {
           console.log("Received outcome:", data);
           setOutcome(data.outcome);
-          setIsLoading(false);
         })
         .catch((error) => {
           console.error("Error fetching outcome:", error);
           setOutcome(
             "The council's decision had significant consequences, but the details are still being processed."
           );
-          setIsLoading(false);
         });
     }
   }, [
@@ -335,6 +333,50 @@ const Game = () => {
     currentGamePhase,
   ]);
 
+  // Update handleNextRound to clear outcome before starting next round
+  const handleNextRound = async () => {
+    if (!currentSession?.session_id) return;
+
+    try {
+      // Clear the current outcome before starting next round
+      setOutcome("");
+      // Call the backend to start the next round
+      await nextRound();
+    } catch (error) {
+      console.error("Error starting next round:", error);
+    }
+  };
+
+  // Handle WebSocket messages
+  useEffect(() => {
+    const handleWebSocketMessage = (event: MessageEvent) => {
+      const data = JSON.parse(event.data);
+
+      if (data.type === "scenario_update") {
+        // Update the session with the new scenario
+        setCurrentSession((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            currentScenario: data.payload.scenario,
+          };
+        });
+      } else if (data.type === "loading_state") {
+        // Update loading state
+        setIsLoading(data.payload.isLoading);
+        setLoadingMessage(data.payload.message);
+      }
+    };
+
+    // Add WebSocket event listener
+    const ws = new WebSocket("ws://localhost:8000/ws");
+    ws.onmessage = handleWebSocketMessage;
+
+    return () => {
+      ws.close();
+    };
+  }, [setCurrentSession, setIsLoading, setLoadingMessage]);
+
   if (!session) {
     return <div>Error: No active session</div>;
   }
@@ -445,66 +487,6 @@ const Game = () => {
         p.id === playerId ? { ...p, hasVoted: true } : p
       );
       setDebugSession(updatedSession);
-    }
-  };
-
-  const handleNextRound = async () => {
-    if (!session?.session_id) return;
-
-    setIsLoading(true);
-    setLoadingMessage("Starting next round...");
-
-    try {
-      // Call the backend to start the next round
-      await nextRound();
-
-      // Clear the current scenario and outcome to prevent showing old data
-      setCurrentSession((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          currentScenario: null,
-        };
-      });
-      setOutcome("");
-
-      // Poll for the new scenario
-      let attempts = 0;
-      const maxAttempts = 10;
-      const pollInterval = 1000; // 1 second
-
-      const pollForNewScenario = async () => {
-        if (attempts >= maxAttempts) {
-          throw new Error("Timeout waiting for new scenario");
-        }
-
-        const response = await fetch(
-          `http://localhost:8000/api/games/${session.session_id}/scenario`
-        );
-
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data = await response.json();
-
-        if (data.scenario && data.options) {
-          // New scenario is ready
-          setOutcome(null);
-          setIsLoading(false);
-          return;
-        }
-
-        // Scenario not ready yet, try again
-        attempts++;
-        setTimeout(pollForNewScenario, pollInterval);
-      };
-
-      await pollForNewScenario();
-    } catch (error) {
-      console.error("Error starting next round:", error);
-      setIsLoading(false);
-      // You might want to show an error message to the user here
     }
   };
 
@@ -666,10 +648,8 @@ const Game = () => {
                   </div>
                 )}
 
-                {/* Outcome Section */}
-                <p className="text-gray-300 mb-6">
-                  {outcome || "Processing the council's decision..."}
-                </p>
+                {/* Outcome Section - Only show if we have an outcome */}
+                {outcome && <p className="text-gray-300 mb-6">{outcome}</p>}
 
                 <div className="flex justify-end">
                   <Button onClick={handleNextRound} glow>

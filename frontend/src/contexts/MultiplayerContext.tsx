@@ -68,11 +68,13 @@ interface WebSocketMessage {
         text: string;
       }>;
     };
+    isLoading: boolean;
+    message: string;
     [key: string]: unknown;
   };
 }
 
-interface MultiplayerContextType {
+export type MultiplayerContextType = {
   playerId: string | null;
   playerName: string | null;
   currentSession: GameSession | null;
@@ -93,7 +95,10 @@ interface MultiplayerContextType {
   scenarioOptions: string[];
   isScenarioComplete: boolean;
   setCurrentSession: React.Dispatch<React.SetStateAction<GameSession | null>>;
-}
+  loadingMessage: string;
+  setIsLoading: (isLoading: boolean) => void;
+  setLoadingMessage: (message: string) => void;
+};
 
 export const MultiplayerContext = createContext<MultiplayerContextType | null>(
   null
@@ -121,6 +126,7 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
   const [scenarioSocket, setScenarioSocket] = useState<WebSocket | null>(null);
   const [timerEndTime, setTimerEndTime] = useState<string | null>(null);
   const [timerRunning, setTimerRunning] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState("");
 
   const navigate = useNavigate();
 
@@ -958,6 +964,85 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
     };
   }, [scenarioSocket]);
 
+  // Initialize WebSocket connection
+  useEffect(() => {
+    if (currentSession) {
+      const ws = new WebSocket("ws://localhost:8000/ws");
+      setScenarioSocket(ws);
+
+      ws.onopen = () => {
+        console.log("WebSocket connected");
+        // Send join message
+        ws.send(
+          JSON.stringify({
+            type: "join_game",
+            payload: {
+              session_id: currentSession.session_id,
+              player_id: playerId,
+              player_name: playerName,
+            },
+          })
+        );
+      };
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        handleWebSocketMessage(data);
+      };
+
+      ws.onerror = (error) => {
+        console.error("WebSocket error:", error);
+      };
+
+      ws.onclose = () => {
+        console.log("WebSocket disconnected");
+      };
+
+      return () => {
+        ws.close();
+      };
+    }
+  }, [currentSession, playerId, playerName]);
+
+  // Update the WebSocket message handler
+  const handleWebSocketMessage = useCallback(
+    (data: WebSocketMessage) => {
+      console.log("Received WebSocket message:", data);
+
+      switch (data.type) {
+        case "loading_state":
+          setIsLoading(data.payload.isLoading);
+          setLoadingMessage(data.payload.message);
+          break;
+        case "game_started":
+          setCurrentSession((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              currentScenario: data.payload.scenario,
+              phase: "scenario",
+            };
+          });
+          setIsLoading(false);
+          setLoadingMessage("");
+          break;
+        case "scenario_update":
+          setCurrentSession((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              currentScenario: data.payload.scenario,
+            };
+          });
+          setIsLoading(false);
+          setLoadingMessage("");
+          break;
+        // ... other existing cases ...
+      }
+    },
+    [setCurrentSession]
+  );
+
   return (
     <MultiplayerContext.Provider
       value={{
@@ -981,6 +1066,9 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
         scenarioOptions,
         isScenarioComplete,
         setCurrentSession,
+        loadingMessage,
+        setIsLoading,
+        setLoadingMessage,
       }}
     >
       {children}

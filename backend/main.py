@@ -335,6 +335,15 @@ async def get_game_state(session_id: str):
 @app.post("/api/games/{session_id}/start")
 async def start_game(session_id: str):
     try:
+        # Broadcast loading state to all players
+        await manager.broadcast_to_session(session_id, {
+            "type": "loading_state",
+            "payload": {
+                "isLoading": True,
+                "message": "Generating next scenario..."
+            }
+        })
+
         logger.info(f"=== Starting game for session_id: {session_id} ===")
         
         # Load game state
@@ -396,23 +405,50 @@ async def start_game(session_id: str):
         
         # Broadcast game started message to all connected clients
         logger.info("Broadcasting game started message to all connected clients")
-        await manager.broadcast_to_session({
+        await manager.broadcast_to_session(session_id, {
             "type": "game_started",
-            "scenario": generated_scenario,
-            "phase": "scenario",
-            "current_round": game.current_round  # Add round number to broadcast
-        }, session_id)
+            "payload": {
+                "scenario": generated_scenario,
+                "phase": "scenario",
+                "current_round": game.current_round
+            }
+        })
         
         # Check if we should start the timer now
         await manager.check_and_start_timer(session_id)
+        
+        # After scenario is generated and game is started, broadcast loading state end
+        await manager.broadcast_to_session(session_id, {
+            "type": "loading_state",
+            "payload": {
+                "isLoading": False,
+                "message": ""
+            }
+        })
         
         logger.info(f"Game started successfully for session_id: {session_id}")
         logger.info(f"Current phase: {game.phase}")
         return {"message": "Game started successfully"}
     except HTTPException as he:
+        # Ensure loading state is cleared even on error
+        await manager.broadcast_to_session(session_id, {
+            "type": "loading_state",
+            "payload": {
+                "isLoading": False,
+                "message": ""
+            }
+        })
         logger.error(f"HTTP Exception in start_game: {he.detail}")
         raise he
     except Exception as e:
+        # Ensure loading state is cleared even on error
+        await manager.broadcast_to_session(session_id, {
+            "type": "loading_state",
+            "payload": {
+                "isLoading": False,
+                "message": ""
+            }
+        })
         logger.error(f"Unexpected error in start_game: {str(e)}")
         logger.error(f"Error type: {type(e)}")
         logger.error(f"Error details: {e.__dict__}")
@@ -547,6 +583,15 @@ async def get_voting_options(session_id: str):
 @app.post("/api/games/{session_id}/scenario/outcome")
 async def get_voting_outcome(session_id: str):
     try:
+        # Broadcast loading state to all players
+        await manager.broadcast_to_session(session_id, {
+            "type": "loading_state",
+            "payload": {
+                "isLoading": True,
+                "message": "Generating outcome..."
+            }
+        })
+
         # Get game state
         game = await GameState.load(session_id)
         if not game:
@@ -651,12 +696,29 @@ async def get_voting_outcome(session_id: str):
             await game.save() # Save the game state with the new outcome and resource changes
             logger.info(f"Outcome and resource changes saved for session {session_id}. Releasing lock.")
             
+            # After generating outcome, broadcast loading state end
+            await manager.broadcast_to_session(session_id, {
+                "type": "loading_state",
+                "payload": {
+                    "isLoading": False,
+                    "message": ""
+                }
+            })
+            
             return {
                 "outcome": outcome,
                 "resource_changes": resource_changes
             }
         # Lock is released automatically here
     except Exception as e:
+        # Ensure loading state is cleared even on error
+        await manager.broadcast_to_session(session_id, {
+            "type": "loading_state",
+            "payload": {
+                "isLoading": False,
+                "message": ""
+            }
+        })
         logger.error(f"Error generating voting outcome: {str(e)}")
         logger.error(f"Error type: {type(e)}")
         # Log more details if possible, e.g., traceback
@@ -685,6 +747,72 @@ async def get_vote_count(session_id: str, round: int, option: str):
     except Exception as e:
         logger.error(f"Error getting vote count: {str(e)}")
         return {"count": 0}
+
+@app.post("/api/games/{session_id}/next_round")
+async def next_round(session_id: str):
+    try:
+        # Broadcast loading state to all players
+        await manager.broadcast_to_session(session_id, {
+            "type": "loading_state",
+            "payload": {
+                "isLoading": True,
+                "message": "Generating new scenario..."
+            }
+        })
+
+        # Get current game state
+        game = await GameState.load(session_id)
+        if not game:
+            raise HTTPException(status_code=404, detail="Game not found")
+
+        # Increment round and clear previous scenario/outcome
+        game.current_round += 1
+        game.phase = GamePhase.SCENARIO
+        game.current_scenario = None  # Clear previous scenario and outcome
+        await game.save()
+
+        # Generate new scenario
+        title, description = await scenario_generator.generate_scenario(game.dict())
+        options = await scenario_generator.generate_voting_options(title, description)
+
+        # Update game with new scenario
+        game.current_scenario = {
+            "title": title,
+            "description": description,
+            "options": options,
+            "outcome": None  # Ensure outcome is cleared
+        }
+        await game.save()
+
+        # Broadcast new scenario to all players
+        await manager.broadcast_to_session(session_id, {
+            "type": "scenario_update",
+            "payload": {
+                "scenario": game.current_scenario
+            }
+        })
+
+        # Clear loading state
+        await manager.broadcast_to_session(session_id, {
+            "type": "loading_state",
+            "payload": {
+                "isLoading": False,
+                "message": ""
+            }
+        })
+
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Error in next_round: {str(e)}")
+        # Clear loading state on error
+        await manager.broadcast_to_session(session_id, {
+            "type": "loading_state",
+            "payload": {
+                "isLoading": False,
+                "message": ""
+            }
+        })
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Clean up timer tasks when the server shuts down
 @app.on_event("shutdown")
