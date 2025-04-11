@@ -112,9 +112,16 @@ const Index = () => {
                   id="sessionCode"
                   type="text"
                   value={sessionCode}
-                  onChange={(e) => setSessionCode(e.target.value)}
+                  onChange={(e) => {
+                    // Convert to uppercase and limit to 6 characters
+                    const value = e.target.value.toUpperCase().slice(0, 6);
+                    setSessionCode(value);
+                  }}
                   placeholder="Enter 6-digit code"
                   className="w-full p-3 bg-secondary text-foreground border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-neon-pink"
+                  maxLength={6}
+                  pattern="[A-Z0-9]{6}"
+                  title="Please enter a 6-digit code using uppercase letters and numbers"
                 />
               </div>
               <Button

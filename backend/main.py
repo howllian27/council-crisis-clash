@@ -13,6 +13,8 @@ from game.supabase_client import supabase, get_game, get_players, add_player, up
 from datetime import datetime, timedelta
 from ai.scenario_generator import scenario_generator
 import json
+import random
+import string
 
 # Configure logging
 logging.basicConfig(
@@ -127,6 +129,12 @@ scenario_tasks: Dict[str, asyncio.Task] = {}
 # Add a lock for outcome generation to prevent multiple generations
 outcome_generation_locks: Dict[str, asyncio.Lock] = {}
 
+def generate_session_code():
+    """Generate a random 6-digit alphanumeric code."""
+    # Use uppercase letters and numbers, excluding similar characters
+    characters = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+    return ''.join(random.choices(characters, k=6))
+
 @app.get("/")
 async def root():
     return {"message": "Welcome to Project Oversight API"}
@@ -188,7 +196,7 @@ async def scenario_websocket(websocket: WebSocket, session_id: str):
 @app.post("/api/games")
 async def create_game(request: CreateGameRequest):
     try:
-        session_id = str(uuid.uuid4())
+        session_id = generate_session_code()
         host_id = str(uuid.uuid4())
         
         logger.info(f"Creating new game with session_id: {session_id}")
