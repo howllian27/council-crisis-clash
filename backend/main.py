@@ -664,6 +664,28 @@ async def get_voting_outcome(session_id: str):
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error generating voting outcome: {str(e)}")
 
+@app.get("/api/games/{session_id}/votes")
+async def get_vote_count(session_id: str, round: int, option: str):
+    try:
+        # Directly query the votes table
+        result = supabase.table("votes").select("*").eq("session_id", session_id).eq("round", round).eq("vote", option).execute()
+        
+        if not hasattr(result, 'data'):
+            logger.error("Invalid response from database")
+            return {"count": 0}
+            
+        count = len(result.data)
+        logger.info(f"Found {count} votes for session {session_id}, round {round}, option {option}")
+        
+        # Debug log the actual votes found
+        if count > 0:
+            logger.info(f"Vote details: {result.data}")
+            
+        return {"count": count}
+    except Exception as e:
+        logger.error(f"Error getting vote count: {str(e)}")
+        return {"count": 0}
+
 # Clean up timer tasks when the server shuts down
 @app.on_event("shutdown")
 async def shutdown_event():

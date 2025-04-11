@@ -14,6 +14,11 @@ import { gameService } from "../services/gameService";
 import LoadingOverlay from "../components/LoadingOverlay";
 import Timer from "../components/Timer";
 
+// Define interface for vote counts
+interface VoteCounts {
+  [key: string]: number;
+}
+
 const Game = () => {
   const navigate = useNavigate();
   const {
@@ -32,6 +37,7 @@ const Game = () => {
   const [outcome, setOutcome] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState("Loading...");
+  const [voteCounts, setVoteCounts] = useState<VoteCounts>({});
 
   // Add debug logging for gamePhase
   console.log("Game Phase Value:", {
@@ -282,6 +288,53 @@ const Game = () => {
     }
   }, [session?.session_id, session?.currentScenario, setCurrentSession]);
 
+  // Add effect to fetch vote counts
+  useEffect(() => {
+    const fetchVoteCounts = async () => {
+      if (
+        !session?.session_id ||
+        !session.currentScenario?.options ||
+        currentGamePhase !== "results"
+      ) {
+        return;
+      }
+
+      try {
+        // Fetch votes for each option
+        const promises = session.currentScenario.options.map(
+          async (_, index) => {
+            const optionId = `option${index + 1}`;
+            const response = await fetch(
+              `http://localhost:8000/api/games/${session.session_id}/votes?round=${session.currentRound}&option=${optionId}`
+            );
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+            return { optionId, count: data.count };
+          }
+        );
+
+        const results = await Promise.all(promises);
+        const newVoteCounts = results.reduce((acc, { optionId, count }) => {
+          acc[optionId] = count;
+          return acc;
+        }, {} as VoteCounts);
+
+        setVoteCounts(newVoteCounts);
+      } catch (error) {
+        console.error("Error fetching vote counts:", error);
+      }
+    };
+
+    fetchVoteCounts();
+  }, [
+    session?.session_id,
+    session?.currentRound,
+    session?.currentScenario?.options,
+    currentGamePhase,
+  ]);
+
   if (!session) {
     return <div>Error: No active session</div>;
   }
@@ -463,6 +516,14 @@ const Game = () => {
     }
   };
 
+  // Define the player type
+  interface GamePlayer {
+    id: string;
+    name: string;
+    vote?: string;
+    hasVoted: boolean;
+  }
+
   return (
     <div className="min-h-screen w-full bg-gradient-to-b from-black to-gray-900 p-4 pb-16">
       {isLoading && <LoadingOverlay message={loadingMessage} />}
@@ -554,90 +615,66 @@ const Game = () => {
             {currentGamePhase === "results" && (
               <div className="glass-panel p-6 animate-fade-in text-justify">
                 <h2 className="text-2xl font-bold mb-4 neon-glow">Results</h2>
+
+                {/* Voting Results Section */}
+                {currentScenario?.options && (
+                  <div className="mb-6 p-4 border border-neon-pink rounded-md bg-neon-pink bg-opacity-5">
+                    <h3 className="font-semibold text-neon-pink mb-3">
+                      Council Votes
+                    </h3>
+                    <div className="space-y-2">
+                      {currentScenario.options.map((option, index) => {
+                        const optionId = `option${index + 1}`;
+                        const voteCount = voteCounts[optionId] || 0;
+
+                        // Check if this is the winning option
+                        const maxVotes = Math.max(...Object.values(voteCounts));
+                        const isWinningOption =
+                          voteCount === maxVotes && voteCount > 0;
+
+                        return (
+                          <div
+                            key={optionId}
+                            className={cn(
+                              "flex justify-between items-center p-3 rounded",
+                              isWinningOption &&
+                                "bg-neon-pink bg-opacity-10 border border-neon-pink"
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                "text-sm flex-grow mr-4 text-white",
+                                isWinningOption && "text-neon-pink"
+                              )}
+                            >
+                              {option.text}
+                            </span>
+                            <span
+                              className={cn(
+                                "text-sm font-bold whitespace-nowrap",
+                                isWinningOption
+                                  ? "text-neon-pink"
+                                  : "text-gray-200"
+                              )}
+                            >
+                              {voteCount} {voteCount === 1 ? "vote" : "votes"}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Outcome Section */}
                 <p className="text-gray-300 mb-6">
                   {outcome || "Processing the council's decision..."}
                 </p>
-                {/* 
-                <div className="p-4 border border-neon-pink rounded-md bg-neon-pink bg-opacity-5 mb-6">
-                  <h3 className="font-semibold text-neon-pink mb-2">Outcome</h3>
-                  <p className="text-sm text-gray-300 text-justify">
-                    {outcome ||
-                      "The council's decision had significant consequences, but the details are still being processed."}
-                  </p>
-                </div> */}
 
                 <div className="flex justify-end">
                   <Button onClick={handleNextRound} glow>
                     Next Round
                   </Button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Right column - Players and Secret Objective */}
-          <div className="space-y-6">
-            <div className="glass-panel p-4 animate-fade-in">
-              <h2 className="text-lg font-semibold mb-4">Council Members</h2>
-              <div className="space-y-3">
-                {session.players.map((player) => (
-                  <div
-                    key={player.id}
-                    className={cn(
-                      "flex items-center justify-between p-2 rounded",
-                      player.isEliminated ? "opacity-50" : "",
-                      player.hasVoted ? "bg-secondary" : "bg-transparent"
-                    )}
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-sm">
-                        {player.name.charAt(0)}
-                      </div>
-                      <span
-                        className={player.isEliminated ? "line-through" : ""}
-                      >
-                        {player.name}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center">
-                      {player.hasVoted && (
-                        <span className="text-xs px-2 py-1 bg-neon-pink bg-opacity-20 text-neon-pink rounded-full">
-                          Voted
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {currentPlayer?.secretObjective && (
-              <div className="glass-panel p-4 animate-fade-in border border-neon-pink">
-                <h2 className="text-lg font-semibold mb-2 text-neon-pink">
-                  Secret Objective
-                </h2>
-                <p className="text-sm text-gray-300 mb-3">
-                  {currentPlayer.secretObjective.description}
-                </p>
-                <div className="flex items-center justify-between text-xs text-gray-400">
-                  <span>Progress</span>
-                  <span>
-                    {currentPlayer.secretObjective.progress}/
-                    {currentPlayer.secretObjective.target} rounds
-                  </span>
-                </div>
-                <div className="progress-bar mt-1">
-                  <div
-                    className="progress-bar-fill bg-neon-pink"
-                    style={{
-                      width: `${
-                        (currentPlayer.secretObjective.progress /
-                          currentPlayer.secretObjective.target) *
-                        100
-                      }%`,
-                    }}
-                  />
                 </div>
               </div>
             )}
