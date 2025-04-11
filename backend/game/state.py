@@ -273,7 +273,7 @@ class GameState(BaseModel):
     async def update_resources(self, resource_changes: Dict[ResourceType, int]) -> bool:
         for resource_type, change in resource_changes.items():
             current_value = self.resources[resource_type]
-            new_value = max(0, min(100, current_value + change))
+            new_value = max(0, current_value + change)  # Only cap at 0, allow values above 100
             self.resources[resource_type] = new_value
             
             if new_value <= 0:

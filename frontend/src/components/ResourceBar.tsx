@@ -64,7 +64,10 @@ const ResourceBar = ({
           </span>
         </div>
         <span
-          className={cn("text-sm font-medium", isOverMax && "text-neon-pink")}
+          className={cn(
+            "text-sm font-medium",
+            isOverMax && "text-neon-pink animate-pulse"
+          )}
         >
           {value}/{maxValue}
         </span>
