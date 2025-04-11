@@ -231,9 +231,10 @@ class ScenarioGenerator:
             "Option 4"
         ]
         
-    async def generate_voting_outcome(self, title: str, description: str, winning_option: str, vote_counts: Dict[str, int]) -> str:
+    async def generate_voting_outcome(self, title: str, description: str, winning_option: str, vote_counts: Dict[str, int]) -> Tuple[str, Dict[str, int]]:
         """
         Generate an outcome narrative based on the scenario and voting results.
+        Returns a tuple of (outcome_narrative, resource_changes).
         """
         try:
             # Format vote counts for the prompt
@@ -253,12 +254,27 @@ class ScenarioGenerator:
             Create a narrative that:
             1. Describes what happened after the council made their decision
             2. Explains the consequences of their choice
-            3. Mentions how resources were affected (tech, manpower, economy, happiness, trust)
-            4. Is 3-4 sentences long
-            5. Has a dramatic and engaging tone
+            3. Is 3-4 sentences long
+            4. Has a dramatic and engaging tone
+            
+            Also, determine how this outcome affects the following resources (each should increase or decrease by at least 10 points at once and max 40 points):
+            - tech: technological advancement and infrastructure
+            - manpower: available workforce and personnel
+            - economy: financial resources and economic stability
+            - happiness: public satisfaction and morale
+            - trust: public trust in the council
             
             Return your response as a JSON object with the following structure:
-            {{"outcome": "Your narrative outcome text here"}}
+            {{
+                "outcome": "Your narrative outcome text here",
+                "resource_changes": {{
+                    "tech": number,
+                    "manpower": number,
+                    "economy": number,
+                    "happiness": number,
+                    "trust": number
+                }}
+            }}
             """
             
             # Use async API call with JSON response format
@@ -279,20 +295,21 @@ class ScenarioGenerator:
                 # Parse the JSON response
                 outcome_data = json.loads(content)
                 outcome = outcome_data.get("outcome", "")
+                resource_changes = outcome_data.get("resource_changes", {})
                 
                 if not outcome:
                     logger.error("Failed to generate outcome: Outcome is empty in JSON")
                     return self._create_fallback_outcome()
                 
                 logger.info(f"Generated voting outcome: {outcome}")
+                logger.info(f"Resource changes: {resource_changes}")
                 
                 # Add the outcome to the conversation history for all sessions
-                # This ensures that the outcome is available for future scenario generation
                 for session_id in self.conversation_history:
                     self.conversation_history[session_id].append({"role": "user", "content": f"Option {winning_option}"})
                     self.conversation_history[session_id].append({"role": "assistant", "content": f"Outcome: {outcome}"})
                 
-                return outcome
+                return outcome, resource_changes
                 
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse JSON response for outcome: {str(e)}")
@@ -305,8 +322,17 @@ class ScenarioGenerator:
             # Return a fallback outcome
             return self._create_fallback_outcome()
             
-    def _create_fallback_outcome(self) -> str:
-        return "The council's decision led to mixed results. Some resources were improved while others suffered. The situation remains unresolved, and the council must prepare for future challenges."
+    def _create_fallback_outcome(self) -> Tuple[str, Dict[str, int]]:
+        return (
+            "The council's decision led to mixed results. Some resources were improved while others suffered. The situation remains unresolved, and the council must prepare for future challenges.",
+            {
+                "tech": 0,
+                "manpower": 0,
+                "economy": 0,
+                "happiness": 0,
+                "trust": 0
+            }
+        )
     
     def clear_conversation_history(self, session_id: str):
         """

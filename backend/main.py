@@ -562,7 +562,10 @@ async def get_voting_outcome(session_id: str):
         # Check if outcome is already generated (first check)
         if "outcome" in current_scenario and current_scenario["outcome"]:
             logger.info(f"Outcome already exists for session {session_id} (initial check), returning existing.")
-            return {"outcome": current_scenario["outcome"]}
+            return {
+                "outcome": current_scenario["outcome"],
+                "resource_changes": current_scenario.get("resource_changes", {})
+            }
         
         # Create a lock for this session if it doesn't exist
         if session_id not in outcome_generation_locks:
@@ -584,7 +587,10 @@ async def get_voting_outcome(session_id: str):
             # Check again if outcome was generated while waiting for the lock (second check, now more reliable)
             if "outcome" in current_scenario and current_scenario["outcome"]:
                 logger.info(f"Outcome generated while waiting for lock for session {session_id}, returning existing.")
-                return {"outcome": current_scenario["outcome"]}
+                return {
+                    "outcome": current_scenario["outcome"],
+                    "resource_changes": current_scenario.get("resource_changes", {})
+                }
                 
             logger.info(f"Proceeding with outcome generation for session {session_id}")
             # Get the voting results for the current round
@@ -626,24 +632,29 @@ async def get_voting_outcome(session_id: str):
             logger.info(f"Winning option: {winning_option}")
             
             # Generate outcome based on the scenario and winning option
-            outcome = await scenario_generator.generate_voting_outcome(
+            outcome, resource_changes = await scenario_generator.generate_voting_outcome(
                 current_scenario.get("title", ""),
                 current_scenario.get("description", ""),
                 winning_option,  # This is now guaranteed to be a string
                 vote_counts
             )
             
-            # Update the game state with the outcome
+            # Update the game state with the outcome and resource changes
             current_scenario["outcome"] = outcome
+            current_scenario["resource_changes"] = resource_changes
             game.current_scenario = current_scenario # Ensure game object has updated scenario
-            logger.info(f"Saving generated outcome for session {session_id}")
-            await game.save() # Save the game state with the new outcome
-            logger.info(f"Outcome saved for session {session_id}. Releasing lock.")
             
-            # --- Consider broadcasting the outcome via WebSocket here ---
-            # await manager.broadcast_to_session(session_id, {"type": "outcome_generated", "payload": {"outcome": outcome}})
+            # Apply resource changes
+            await game.update_resources(resource_changes)
             
-            return {"outcome": outcome}
+            logger.info(f"Saving generated outcome and resource changes for session {session_id}")
+            await game.save() # Save the game state with the new outcome and resource changes
+            logger.info(f"Outcome and resource changes saved for session {session_id}. Releasing lock.")
+            
+            return {
+                "outcome": outcome,
+                "resource_changes": resource_changes
+            }
         # Lock is released automatically here
     except Exception as e:
         logger.error(f"Error generating voting outcome: {str(e)}")
