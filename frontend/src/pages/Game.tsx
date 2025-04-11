@@ -11,6 +11,8 @@ import {
   getSampleScenario,
 } from "../services/gameSessionService";
 import { gameService } from "../services/gameService";
+import LoadingOverlay from "../components/LoadingOverlay";
+import Timer from "../components/Timer";
 
 const Game = () => {
   const navigate = useNavigate();
@@ -28,6 +30,8 @@ const Game = () => {
   const [debugSession, setDebugSession] = useState(null);
   const [debugMode] = useState(import.meta.env.DEV);
   const [outcome, setOutcome] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState("Loading...");
 
   // Add debug logging for gamePhase
   console.log("Game Phase Value:", {
@@ -120,6 +124,9 @@ const Game = () => {
       }
 
       console.log("No outcome in session, fetching from API...");
+      setIsLoading(true);
+      setLoadingMessage("Generating outcome...");
+
       // Call the backend API to generate the outcome
       fetch(
         `http://localhost:8000/api/games/${session.session_id}/scenario/outcome`,
@@ -139,12 +146,14 @@ const Game = () => {
         .then((data) => {
           console.log("Received outcome:", data);
           setOutcome(data.outcome);
+          setIsLoading(false);
         })
         .catch((error) => {
           console.error("Error fetching outcome:", error);
           setOutcome(
             "The council's decision had significant consequences, but the details are still being processed."
           );
+          setIsLoading(false);
         });
     }
   }, [
@@ -386,20 +395,63 @@ const Game = () => {
     }
   };
 
-  const handleNextRound = () => {
-    if (currentSession) {
-      nextRound();
-    } else {
-      console.log("Debug mode: Moving to next round");
-      const updatedSession = { ...debugSession };
-      updatedSession.currentRound = updatedSession.currentRound + 1;
-      updatedSession.currentScenario = getSampleScenario();
-      // Reset voting status for all players
-      updatedSession.players = updatedSession.players.map((p) => ({
-        ...p,
-        hasVoted: false,
-      }));
-      setDebugSession(updatedSession);
+  const handleNextRound = async () => {
+    if (!session?.session_id) return;
+
+    setIsLoading(true);
+    setLoadingMessage("Starting next round...");
+
+    try {
+      // Call the backend to start the next round
+      await nextRound();
+
+      // Clear the current scenario and outcome to prevent showing old data
+      setCurrentSession((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          currentScenario: null,
+        };
+      });
+      setOutcome("");
+
+      // Poll for the new scenario
+      let attempts = 0;
+      const maxAttempts = 10;
+      const pollInterval = 1000; // 1 second
+
+      const pollForNewScenario = async () => {
+        if (attempts >= maxAttempts) {
+          throw new Error("Timeout waiting for new scenario");
+        }
+
+        const response = await fetch(
+          `http://localhost:8000/api/games/${session.session_id}/scenario`
+        );
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (data.scenario && data.options) {
+          // New scenario is ready
+          setOutcome(null);
+          setIsLoading(false);
+          return;
+        }
+
+        // Scenario not ready yet, try again
+        attempts++;
+        setTimeout(pollForNewScenario, pollInterval);
+      };
+
+      await pollForNewScenario();
+    } catch (error) {
+      console.error("Error starting next round:", error);
+      setIsLoading(false);
+      // You might want to show an error message to the user here
     }
   };
 
@@ -413,6 +465,11 @@ const Game = () => {
 
   return (
     <div className="min-h-screen w-full bg-gradient-to-b from-black to-gray-900 p-4 pb-16">
+      {isLoading && <LoadingOverlay message={loadingMessage} />}
+      <Timer
+        endTime={currentSession?.timer_end_time || null}
+        isRunning={currentSession?.timer_running || false}
+      />
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <header className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">

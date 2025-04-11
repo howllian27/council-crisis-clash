@@ -48,7 +48,7 @@ class ScenarioGenerator:
         # Get or initialize conversation history for this session
         if session_id not in self.conversation_history:
             self.conversation_history[session_id] = [
-                {"role": "system", "content": "You are a creative game master generating scenarios for a futuristic government council game. Create engaging, morally complex situations that test the players' decision-making abilities but do so within 3-4 engaging sentences."}
+                {"role": "system", "content": "You are a creative game master generating scenarios for a futuristic government council game. Create engaging, morally complex situations that test the players' decision-making abilities but do so within 3-4 engaging sentences. DO NOT EXPLICITLY TELL PLAYERS THE CONSEQUENCES THAT WOULD OCCUR IN TERMS OF RESOURCES"}
             ]
         
         # Get the current conversation history
@@ -83,12 +83,12 @@ class ScenarioGenerator:
         
         try:
             logger.info("Making OpenAI API call...")
-            # Use async API call with the full conversation history
+            # Use async API call with the full conversation history and request JSON response
             response = await self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=messages,
                 temperature=0.8,
-                max_tokens=10000
+                response_format={"type": "json_object"}  # Request JSON format
             )
             logger.info("OpenAI API call successful, processing response...")
             
@@ -96,34 +96,27 @@ class ScenarioGenerator:
             content = response.choices[0].message.content
             logger.info("Raw response content: %s", content)
             
-            # Parse the content to extract title and description
-            title = ""
-            description = ""
-            
-            lines = content.split('\n')
-            for line in lines:
-                if line.startswith("TITLE:"):
-                    title = line.replace("TITLE:", "").strip()
-                elif line.startswith("DESCRIPTION:"):
-                    description = line.replace("DESCRIPTION:", "").strip()
-                elif description:  # If we're in the description section
-                    description += " " + line.strip()
-            
-            # Clean up any remaining whitespace
-            title = title.strip()
-            description = description.strip()
-            
-            if not title or not description:
-                logger.error("Failed to generate complete scenario: Title or description is empty")
+            try:
+                # Parse the JSON response
+                scenario_data = json.loads(content)
+                title = scenario_data.get("title", "")
+                description = scenario_data.get("description", "")
+                
+                if not title or not description:
+                    logger.error("Failed to generate complete scenario: Title or description is empty in JSON")
+                    return self._create_fallback_scenario_text()
+                
+                logger.info(f"Generated scenario title: {title}")
+                logger.info(f"Generated scenario description: {description}")
+                
+                # Add the assistant's response to the conversation history
+                messages.append({"role": "assistant", "content": f"Scenario: {title}\n{description}"})
+                
+                return title, description
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON response: {str(e)}")
                 return self._create_fallback_scenario_text()
-            
-            logger.info(f"Generated scenario title: {title}")
-            logger.info(f"Generated scenario description: {description}")
-            
-            # Add the assistant's response to the conversation history
-            messages.append({"role": "assistant", "content": f"Scenario: {title}\n{description}"})
-            
-            return title, description
             
         except openai.AuthenticationError as e:
             logger.error(f"OpenAI Authentication Error: {str(e)}")
@@ -152,44 +145,44 @@ class ScenarioGenerator:
             DESCRIPTION: {description}
             
             Each option should be a clear, concise action that the council could take.
-            Format each option as a single line
+            Return your response as a JSON object with an "options" array containing exactly 4 strings.
             """
             
-            # Use async API call
+            # Use async API call with JSON response format
             response = await self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "You are a game master creating voting options for a government council game. Create exactly 4 distinct options that represent different approaches to the scenario."},
+                    {"role": "system", "content": "You are a game master creating voting options for a government council game. Create exactly 4 distinct options that represent different approaches to the scenario. DO NOT EXPLICITLY TELL PLAYERS THE CONSEQUENCES THAT WOULD OCCUR IN TERMS OF RESOURCES."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.7,
-                max_tokens=10000
+                response_format={"type": "json_object"}  # Request JSON format
             )
             
             # Parse the options from the response
             options_text = response.choices[0].message.content
             logger.info(f"Raw voting options response: {options_text}")
             
-            options = []
-            
-            for line in options_text.split('\n'):
-                line = line.strip()
-                if line and any(line.startswith(f"{i}.") for i in range(1, 5)):
-                    # Extract the option text (remove the number and period)
-                    option_text = line.split('.', 1)[1].strip()
-                    options.append(option_text)
-            
-            # Ensure we have exactly 4 options
-            if len(options) < 4:
-                # Add fallback options if needed
-                while len(options) < 4:
-                    options.append(f"Option {len(options) + 1}")
-            elif len(options) > 4:
-                # Trim to 4 options
-                options = options[:4]
-            
-            logger.info(f"Generated voting options: {options}")
-            return options
+            try:
+                # Parse the JSON response
+                options_data = json.loads(options_text)
+                options = options_data.get("options", [])
+                
+                # Ensure we have exactly 4 options
+                if len(options) < 4:
+                    # Add fallback options if needed
+                    while len(options) < 4:
+                        options.append(f"Option {len(options) + 1}")
+                elif len(options) > 4:
+                    # Trim to 4 options
+                    options = options[:4]
+                
+                logger.info(f"Generated voting options: {options}")
+                return options
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON response for options: {str(e)}")
+                return self._create_fallback_options()
             
         except Exception as e:
             logger.error(f"Error generating voting options: {str(e)}")
@@ -218,11 +211,10 @@ class ScenarioGenerator:
         3. Involves multiple stakeholders
         4. Has potential for betrayal or cooperation
         5. Themes of absurdity and scifi
-        5. 3-4 engaging sentences
+        6. 3-4 engaging sentences
         
-        Format the response as:
-        TITLE: [A short, attention-grabbing title]
-        DESCRIPTION: [A detailed description of the scenario]
+        Return your response as a JSON object with the following structure:
+        {{"title": "A short, attention-grabbing title", "description": "A detailed description of the scenario"}}
         """
 
     def _create_fallback_scenario_text(self) -> Tuple[str, str]:
@@ -264,30 +256,47 @@ class ScenarioGenerator:
             3. Mentions how resources were affected (tech, manpower, economy, happiness, trust)
             4. Is 3-4 sentences long
             5. Has a dramatic and engaging tone
+            
+            Return your response as a JSON object with the following structure:
+            {{"outcome": "Your narrative outcome text here"}}
             """
             
-            # Use async API call
+            # Use async API call with JSON response format
             response = await self.client.chat.completions.create(
-                model="gpt-4",
+                model="gpt-4o",
                 messages=[
                     {"role": "system", "content": "You are a game master creating narrative outcomes for a government council game. Create engaging outcomes that describe the consequences of the council's decisions."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.7,
-                max_tokens=500
+                response_format={"type": "json_object"}  # Request JSON format
             )
             
             # Get the outcome from the response
-            outcome = response.choices[0].message.content.strip()
-            logger.info(f"Generated voting outcome: {outcome}")
+            content = response.choices[0].message.content.strip()
             
-            # Add the outcome to the conversation history for all sessions
-            # This ensures that the outcome is available for future scenario generation
-            for session_id in self.conversation_history:
-                self.conversation_history[session_id].append({"role": "user", "content": f"Option {winning_option}"})
-                self.conversation_history[session_id].append({"role": "assistant", "content": f"Outcome: {outcome}"})
-            
-            return outcome
+            try:
+                # Parse the JSON response
+                outcome_data = json.loads(content)
+                outcome = outcome_data.get("outcome", "")
+                
+                if not outcome:
+                    logger.error("Failed to generate outcome: Outcome is empty in JSON")
+                    return self._create_fallback_outcome()
+                
+                logger.info(f"Generated voting outcome: {outcome}")
+                
+                # Add the outcome to the conversation history for all sessions
+                # This ensures that the outcome is available for future scenario generation
+                for session_id in self.conversation_history:
+                    self.conversation_history[session_id].append({"role": "user", "content": f"Option {winning_option}"})
+                    self.conversation_history[session_id].append({"role": "assistant", "content": f"Outcome: {outcome}"})
+                
+                return outcome
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON response for outcome: {str(e)}")
+                return self._create_fallback_outcome()
             
         except Exception as e:
             logger.error(f"Error generating voting outcome: {str(e)}")
@@ -308,4 +317,4 @@ class ScenarioGenerator:
             logger.info(f"Cleared conversation history for session {session_id}")
 
 # Create a singleton instance
-scenario_generator = ScenarioGenerator() 
+scenario_generator = ScenarioGenerator()

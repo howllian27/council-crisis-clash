@@ -119,6 +119,8 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
   const [scenarioOptions, setScenarioOptions] = useState<string[]>([]);
   const [isScenarioComplete, setIsScenarioComplete] = useState<boolean>(false);
   const [scenarioSocket, setScenarioSocket] = useState<WebSocket | null>(null);
+  const [timerEndTime, setTimerEndTime] = useState<string | null>(null);
+  const [timerRunning, setTimerRunning] = useState(false);
 
   const navigate = useNavigate();
 
@@ -446,6 +448,95 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, [currentSession?.session_id, navigate, playerId, gamePhase]);
 
+  // Add timer check interval
+  useEffect(() => {
+    if (!timerRunning || !timerEndTime) return;
+
+    const interval = setInterval(() => {
+      const now = new Date().getTime();
+      const end = new Date(timerEndTime).getTime();
+
+      if (now >= end) {
+        setTimerRunning(false);
+        setTimerEndTime(null);
+        // Update game phase to results when timer ends
+        if (currentSession?.session_id) {
+          gameService
+            .updateGamePhase(currentSession.session_id, "results")
+            .catch((error) => {
+              console.error("Error updating game phase:", error);
+              toast.error("Failed to update game phase");
+            });
+        }
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [timerRunning, timerEndTime, currentSession]);
+
+  // Update timer state handling in handleGameStateUpdate
+  const handleGameStateUpdate = useCallback(
+    (gameState: GameState) => {
+      if (!gameState) return;
+
+      console.log("Handling game state update:", gameState);
+
+      setTimerRunning(gameState.timer_running);
+      setTimerEndTime(gameState.timer_end_time);
+
+      if (gameState.timer_end_time !== currentSession?.timer_end_time) {
+        console.log("Timer end time changed:", {
+          previous: currentSession?.timer_end_time,
+          current: gameState.timer_end_time,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // Update the phase in the context first
+      if (gameState.phase !== currentSession?.phase) {
+        console.log("Phase changed:", {
+          previous: currentSession?.phase,
+          current: gameState.phase,
+          timestamp: new Date().toISOString(),
+        });
+        setGamePhase(gameState.phase);
+      }
+
+      // Check if phase changed to scenario
+      if (
+        gameState.phase === "scenario" &&
+        currentSession?.phase !== "scenario"
+      ) {
+        console.log("Phase changed to scenario, starting timer");
+        // Only start timer if it's not already running
+        if (currentSession?.session_id && !gameState.timer_running) {
+          gameService
+            .startTimer(currentSession.session_id)
+            .then(() => {
+              console.log("Timer started on server");
+              setTimerRunning(true);
+            })
+            .catch((error) => {
+              console.error("Error starting timer:", error);
+              toast.error("Failed to start timer");
+            });
+        }
+      }
+
+      // Update the session state
+      setCurrentSession((prev) => {
+        if (!prev) return gameState;
+        return {
+          ...prev,
+          ...gameState,
+          timer_running: gameState.timer_running,
+          timer_end_time: gameState.timer_end_time,
+        };
+      });
+    },
+    [currentSession, setGamePhase, setCurrentSession]
+  );
+
   // Create a new game session
   const createSession = async (name: string) => {
     try {
@@ -736,7 +827,34 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
     if (!currentSession?.session_id) return;
 
     try {
-      await gameService.startGame(currentSession.session_id);
+      console.log("Starting next round...");
+      // Call the backend API to start the next round
+      const response = await fetch(
+        `http://localhost:8000/api/games/${currentSession.session_id}/start`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log("Next round started successfully:", data);
+
+      // Update the session with the new round number
+      setCurrentSession((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          currentRound: prev.currentRound + 1,
+          // Don't update the scenario here, it will be fetched by the Game component
+        };
+      });
     } catch (err) {
       console.error("Error starting next round:", err);
       setError("Failed to start next round. Please try again.");
