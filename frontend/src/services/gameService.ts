@@ -532,16 +532,47 @@ export const gameService = {
 
       console.log(`Recording vote for round ${currentRound}`);
 
-      const { error } = await supabase.from("votes").insert({
-        session_id: sessionId,
-        player_id: playerId,
-        vote: option,
-        round: currentRound,
-      });
+      // First check if a vote already exists
+      const { data: existingVote, error: checkError } = await supabase
+        .from("votes")
+        .select("*")
+        .eq("session_id", sessionId)
+        .eq("player_id", playerId)
+        .eq("round", currentRound)
+        .single();
 
-      if (error) {
-        console.error("Error recording vote:", error);
-        throw error;
+      if (checkError && checkError.code !== "PGRST116") {
+        // PGRST116 is "no rows returned"
+        console.error("Error checking for existing vote:", checkError);
+        throw checkError;
+      }
+
+      if (existingVote) {
+        // Update existing vote
+        const { error: updateError } = await supabase
+          .from("votes")
+          .update({ vote: option })
+          .eq("session_id", sessionId)
+          .eq("player_id", playerId)
+          .eq("round", currentRound);
+
+        if (updateError) {
+          console.error("Error updating vote:", updateError);
+          throw updateError;
+        }
+      } else {
+        // Insert new vote
+        const { error: insertError } = await supabase.from("votes").insert({
+          session_id: sessionId,
+          player_id: playerId,
+          vote: option,
+          round: currentRound,
+        });
+
+        if (insertError) {
+          console.error("Error inserting vote:", insertError);
+          throw insertError;
+        }
       }
 
       console.log("Vote recorded successfully");
