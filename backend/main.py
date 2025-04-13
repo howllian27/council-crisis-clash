@@ -67,6 +67,11 @@ class VoteRequest(BaseModel):
 # Store active timer tasks
 timer_tasks: Dict[str, asyncio.Task] = {}
 
+# In-memory storage for secret incentives keyed by session_id then round.
+secret_incentives: Dict[str, Dict[int, Dict[str, str]]] = {}
+# A lock per session to prevent race conditions.
+secret_incentive_locks: Dict[str, asyncio.Lock] = {}
+
 async def check_timer(session_id: str):
     try:
         # logger.info(f"Starting timer check for session {session_id}")
@@ -817,52 +822,86 @@ async def next_round(session_id: str):
         })
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/games/{session_id}/secret_incentive")
-async def get_secret_incentive(session_id: str, round: int):
-    """Get or create a secret incentive for the current round."""
+@app.post("/api/games/{session_id}/secret_incentive")
+async def generate_secret_incentive(session_id: str, round: int):
+    """
+    Host-only endpoint: generate and store a secret incentive for the current round.
+    """
     try:
-        # Get game state
+        # Load the game state.
         game = await GameState.load(session_id)
         if not game:
             raise HTTPException(status_code=404, detail="Game not found")
-            
-        # Initialize session incentives if not exists
+        
+        # Initialize storage and lock if needed.
         if session_id not in secret_incentives:
             secret_incentives[session_id] = {}
+        if session_id not in secret_incentive_locks:
+            secret_incentive_locks[session_id] = asyncio.Lock()
+        
+        # Use the lock to prevent duplicate generation.
+        async with secret_incentive_locks[session_id]:
+            if round in secret_incentives[session_id]:
+                return secret_incentives[session_id][round]
             
-        # Always create a new incentive for each round
-        players = game.players
-        if not players:
-            raise HTTPException(status_code=400, detail="No players in game")
+            # Ensure we have players.
+            players = game.players
+            if not players:
+                raise HTTPException(status_code=400, detail="No players in game")
+            
+            # Randomly select a player.
+            player_ids = list(players.keys())
+            selected_player_id = random.choice(player_ids)
+            
+            # Retrieve scenario context.
+            current_scenario = game.current_scenario or {}
+            scenario_title = current_scenario.get("title", "Unknown Crisis")
+            scenario_description = current_scenario.get("description", "")
+            
+            # Use your scenario generator to generate incentive text.
+            incentive_text = await scenario_generator.generate_secret_incentive(
+                scenario_title,
+                scenario_description
+            )
+            
+            new_incentive = {
+                "player_id": selected_player_id,
+                "text": incentive_text
+            }
+            
+            # Store the incentive.
+            secret_incentives[session_id][round] = new_incentive
+            logger.info(f"Created new secret incentive for session {session_id}, round {round}: {new_incentive}")
+            return new_incentive
 
-        if round in secret_incentives[session_id]:
-            return secret_incentives[session_id][round]
-            
-        # Select random player
-        player_ids = list(players.keys())
-        selected_player_id = random.choice(player_ids)
+    except Exception as e:
+        logger.error(f"Error getting secret incentive: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/games/{session_id}/secret_incentive")
+async def get_secret_incentive(session_id: str, player_id: str, round: int):
+    """
+    Client endpoint: returns the secret incentive only if the requesting player's ID 
+    matches the selected player's ID stored for this round. Otherwise, returns {}.
+    """
+    try:
+        # Load the game state to ensure the session exists.
+        game = await GameState.load(session_id)
+        if not game:
+            raise HTTPException(status_code=404, detail="Game not found")
         
-        # Sample incentive texts
-        incentive_texts = [
-            "Vote for the option that will decrease Tech resources for a secret reward.",
-            "Support the option that boosts Economy for hidden benefits.",
-            "Choose the option that might lower Trust - your loyalty will be rewarded.",
-            "Pick the option that affects Happiness negatively for covert gains.",
-            "Select the choice that reduces Manpower for concealed advantages.",
-        ]
+        # Check if we have stored an incentive.
+        if session_id not in secret_incentives or round not in secret_incentives[session_id]:
+            # Incentive not generated yet – return empty object.
+            return {}
         
-        # Create and store new incentive
-        new_incentive = {
-            "player_id": selected_player_id,
-            "text": random.choice(incentive_texts)
-        }
-        
-        # Store the new incentive for this round
-        secret_incentives[session_id][round] = new_incentive
-        
-        logger.info(f"Created new secret incentive for session {session_id}, round {round}: {new_incentive}")
-        return new_incentive
-        
+        incentive = secret_incentives[session_id][round]
+        # Only return the payload if the requesting player_id matches.
+        if incentive["player_id"] == player_id:
+            return incentive
+        else:
+            # If not, return an empty object.
+            return {}
     except Exception as e:
         logger.error(f"Error getting secret incentive: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

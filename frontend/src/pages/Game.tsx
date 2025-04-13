@@ -37,6 +37,11 @@ interface GamePlayer {
   };
 }
 
+interface IncentiveData {
+  player_id: string;
+  text: string;
+}
+
 const Game = () => {
   const navigate = useNavigate();
   const {
@@ -66,6 +71,12 @@ const Game = () => {
   // Use either the current session or debug session
   const session = currentSession || debugSession;
 
+  // Declare currentPlayer before using it in useEffect dependencies.
+const currentPlayer: GamePlayer | undefined = session?.players?.find(
+  (p: GamePlayer) => p.id === playerId
+);
+
+
   // Set game phase based on session state - only use session phase if available
   const currentGamePhase = session?.phase || gamePhase || "lobby";
 
@@ -80,69 +91,100 @@ const Game = () => {
 
   // Single effect to manage secret incentives
   useEffect(() => {
-    const fetchSecretIncentive = async () => {
-      console.log("fetchSecretIncentive triggered with:", {
+    const generateIncentive = async () => {
+      try {
+        // Only run if the current player is the host.
+        if (currentPlayer?.id !== session?.host_id) return;
+
+        const response = await fetch(
+          `http://localhost:8000/api/games/${session.session_id}/secret_incentive?round=${session.currentRound}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        );
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data: IncentiveData = await response.json();
+        console.log("Host generated secret incentive:", data);
+        // Optionally, update local state immediately or let the GET polling do its job.
+      } catch (error) {
+        console.error("Error generating secret incentive:", error);
+      }
+    };
+
+    if (currentGamePhase === "scenario") {
+      generateIncentive();
+    }
+  }, [session?.session_id, session?.currentRound, currentGamePhase, currentPlayer]);
+
+  useEffect(() => {
+    const pollForSecretIncentive = async () => {
+      console.log("Polling for secret incentive with:", {
         sessionId: session?.session_id,
         currentRound: session?.currentRound,
         gamePhase: currentGamePhase,
-        hasSession: !!session,
-        hasPlayers: session?.players?.length > 0,
+        playerId,
       });
 
-      // Only run in scenario phase with valid session and loaded scenario/options
       if (
         !session?.session_id ||
         !session?.currentRound ||
         currentGamePhase !== "scenario"
       ) {
-        console.log("Skipping fetch - missing required data:", {
-          hasSessionId: !!session?.session_id,
-          hasCurrentRound: !!session?.currentRound,
-          isScenarioPhase: currentGamePhase === "scenario",
-          hasScenario: !!session?.currentScenario,
-          hasOptions: session?.currentScenario?.options?.length > 0,
-          currentGamePhase,
-          sessionPhase: session?.phase,
-          multiplayerPhase: gamePhase,
-        });
+        console.log("Skipping poll - missing required data");
         setSelectedPlayerId(null);
-        setIsIncentiveLoading(false);
+        setIncentiveText("");
         return;
       }
 
-      // Only fetch if we haven’t already fetched for this round
+      // Only poll if we haven't already fetched for this round.
       if (session.currentRound === fetchedRound) return;
 
       try {
         setIsIncentiveLoading(true);
-        console.log(
-          `Fetching secret incentive for round ${session.currentRound}`
-        );
-        const response = await fetch(
-          `http://localhost:8000/api/games/${session.session_id}/secret_incentive?round=${session.currentRound}`
-        );
+        const maxAttempts = 5;
+        let attempts = 0;
+        let incentive: Partial<IncentiveData> = {};
 
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+        while (attempts < maxAttempts) {
+          console.log(`Polling attempt ${attempts + 1} for round ${session.currentRound}`);
+          const response = await fetch(
+            `http://localhost:8000/api/games/${session.session_id}/secret_incentive?player_id=${playerId}&round=${session.currentRound}`
+          );
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+          const data: Partial<IncentiveData> = await response.json();
+          console.log("Received polling data:", data);
+          // Break out if valid incentive data is present
+          if (data.player_id && data.text) {
+            incentive = data;
+            break;
+          }
+          attempts++;
+          await new Promise((resolve) => setTimeout(resolve, 2000));
         }
 
-        const data = await response.json();
-        console.log("Received secret incentive:", data);
-
-        // Update state with the received data
-        if (data.player_id && data.text) {
-          setSelectedPlayerId(data.player_id);
-          setIncentiveText(data.text);
-          setFetchedRound(session.currentRound);
+        if (incentive.player_id && incentive.text) {
+          setSelectedPlayerId(incentive.player_id);
+          setIncentiveText(incentive.text);
           console.log("Updated incentive state:", {
-            selectedPlayerId: data.player_id,
-            incentiveText: data.text,
+            selectedPlayerId: incentive.player_id,
+            incentiveText: incentive.text,
           });
         } else {
-          console.error("Invalid incentive data received:", data);
+          console.log("No secret incentive available yet; leaving state unchanged.");
+          setSelectedPlayerId(null);
+          setIncentiveText("");
         }
+        setFetchedRound(session.currentRound);
       } catch (error) {
-        console.error("Error fetching secret incentive:", error);
+        console.error("Error polling for secret incentive:", error);
         setSelectedPlayerId(null);
         setIncentiveText("");
       } finally {
@@ -150,12 +192,11 @@ const Game = () => {
       }
     };
 
-    fetchSecretIncentive();
-  }, [
-    session?.session_id,
-    session?.currentRound,
-    currentGamePhase,
-  ]);
+    if (currentGamePhase === "scenario") {
+      pollForSecretIncentive();
+    }
+  }, [session?.session_id, session?.currentRound, currentGamePhase, playerId, fetchedRound]);
+  
 
   // Clear selection in results phase
   useEffect(() => {
@@ -526,9 +567,6 @@ const Game = () => {
   if (!session) {
     return <div>Error: No active session</div>;
   }
-
-  // Find current player
-  const currentPlayer = session.players.find((p) => p.id === playerId);
 
   // Debug logging for session data
   console.log("Session Data:", {

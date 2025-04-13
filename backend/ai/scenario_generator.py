@@ -321,6 +321,71 @@ class ScenarioGenerator:
             logger.error(f"Error details: {e.__dict__}")
             # Return a fallback outcome
             return self._create_fallback_outcome()
+
+    async def generate_secret_incentive(
+        self,
+        scenario_title: str,
+        scenario_description: str
+    ) -> str:
+        """
+        Generate a secret incentive text that thematically aligns with the scenario.
+        Returns a single short string that can be handed out to one random player.
+        """
+        try:
+            # Build the prompt with relevant context
+            prompt = f"""
+            You are a game master generating a secret incentive for a futuristic government council scenario.
+            The scenario is:
+            TITLE: {scenario_title}
+            DESCRIPTION: {scenario_description}
+
+            Write one or two sentences that give the selected player
+            a hidden motivation or objective that directly ties into the scenario above.
+            The text should NOT reveal game mechanics; it should be purely narrative flavor.
+            The incentive MUST prompt the selected player to vote for a specific option.
+
+            You must explicitly mention a value between -0.5 and 0.5 that will be added to the player's voting weightage but the incentive should not be complex and simply involve a justification for providing the player extra or reduced voting weightage.
+            
+            Return the response as a JSON object with a single key "incentive" 
+            whose value is the incentive string, for example:
+            {{
+            "incentive": "Vote for the AI's sentience and the AI will reward you by rigging the voting results to give you an extra 0.5 voting weightage."
+            }}
+            """
+
+            # Use your existing asynchronous approach
+            response = await self.client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a helpful assistant that returns exactly one JSON object with the key 'incentive' "
+                            "which provides a short hidden objective for the player. Do not include extra keys or text."
+                        )
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=0.7,
+                response_format={"type": "json_object"}
+            )
+
+            # Parse the JSON response
+            content = response.choices[0].message.content
+            data = json.loads(content)
+            incentive_text = data.get("incentive", "").strip()
+            if not incentive_text:
+                raise ValueError("No 'incentive' key found in JSON response.")
+            
+            return incentive_text
+
+        except Exception as e:
+            logger.error(f"Error generating secret incentive: {str(e)}")
+            # Return a fallback or blank if needed
+            return "Secretly push the council towards questionable alliances for personal gain."
             
     def _create_fallback_outcome(self) -> Tuple[str, Dict[str, int]]:
         return (
