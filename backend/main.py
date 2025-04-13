@@ -129,6 +129,9 @@ scenario_tasks: Dict[str, asyncio.Task] = {}
 # Add a lock for outcome generation to prevent multiple generations
 outcome_generation_locks: Dict[str, asyncio.Lock] = {}
 
+# Store secret incentives for each round
+secret_incentives: Dict[str, Dict[int, Dict[str, str]]] = {}
+
 def generate_session_code():
     """Generate a random 6-digit alphanumeric code."""
     # Use uppercase letters and numbers, excluding similar characters
@@ -812,6 +815,67 @@ async def next_round(session_id: str):
                 "message": ""
             }
         })
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/games/{session_id}/secret_incentive")
+async def get_secret_incentive(session_id: str, round: int):
+    """Get or create a secret incentive for the current round."""
+    try:
+        # Get game state
+        game = await GameState.load(session_id)
+        if not game:
+            raise HTTPException(status_code=404, detail="Game not found")
+            
+        # Initialize session incentives if not exists
+        if session_id not in secret_incentives:
+            secret_incentives[session_id] = {}
+            
+        # Always create a new incentive for each round
+        players = game.players
+        if not players:
+            raise HTTPException(status_code=400, detail="No players in game")
+
+        if round in secret_incentives[session_id]:
+            return secret_incentives[session_id][round]
+            
+        # Select random player
+        player_ids = list(players.keys())
+        selected_player_id = random.choice(player_ids)
+        
+        # Sample incentive texts
+        incentive_texts = [
+            "Vote for the option that will decrease Tech resources for a secret reward.",
+            "Support the option that boosts Economy for hidden benefits.",
+            "Choose the option that might lower Trust - your loyalty will be rewarded.",
+            "Pick the option that affects Happiness negatively for covert gains.",
+            "Select the choice that reduces Manpower for concealed advantages.",
+        ]
+        
+        # Create and store new incentive
+        new_incentive = {
+            "player_id": selected_player_id,
+            "text": random.choice(incentive_texts)
+        }
+        
+        # Store the new incentive for this round
+        secret_incentives[session_id][round] = new_incentive
+        
+        logger.info(f"Created new secret incentive for session {session_id}, round {round}: {new_incentive}")
+        return new_incentive
+        
+    except Exception as e:
+        logger.error(f"Error getting secret incentive: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/games/{session_id}/clear_incentives")
+async def clear_incentives(session_id: str):
+    """Clear all incentives for a session."""
+    try:
+        if session_id in secret_incentives:
+            del secret_incentives[session_id]
+        return {"message": "Incentives cleared successfully"}
+    except Exception as e:
+        logger.error(f"Error clearing incentives: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Clean up timer tasks when the server shuts down
