@@ -176,7 +176,18 @@ export const gameService = {
       // Check current players
       const { data: currentPlayers, error: playersError } = await supabase
         .from("players")
-        .select("*")
+        .select(
+          `
+          id,
+          name,
+          role,
+          is_active,
+          vote_weight,
+          has_voted,
+          is_eliminated,
+          secret_incentive
+        `
+        )
         .eq("session_id", sessionId);
 
       if (playersError) {
@@ -342,13 +353,26 @@ export const gameService = {
       // Fetch players
       const { data: playersData, error: playersError } = await supabase
         .from("players")
-        .select("*")
+        .select(
+          `
+          player_id,
+          name,
+          role,
+          is_active,
+          vote_weight,
+          has_voted,
+          is_eliminated,
+          secret_incentive
+        `
+        )
         .eq("session_id", sessionId);
 
       if (playersError) {
         console.error("Error fetching players:", playersError);
         throw playersError;
       }
+
+      console.log("Raw players data from Supabase:", playersData);
 
       // Fetch resources
       const { data: resourcesData, error: resourcesError } = await supabase
@@ -367,7 +391,17 @@ export const gameService = {
         ...gameData,
         current_scenario: parsedScenario,
         players: playersData.reduce((acc, player) => {
-          acc[player.id] = player;
+          console.log("Processing player:", player);
+          acc[player.player_id] = {
+            id: player.player_id,
+            name: player.name,
+            role: player.role,
+            secret_incentive: player.secret_incentive,
+            is_active: player.is_active,
+            vote_weight: parseFloat(player.vote_weight) || 1.0,
+            has_voted: player.has_voted,
+            is_eliminated: player.is_eliminated,
+          };
           return acc;
         }, {}),
         resources: resourcesData || {
@@ -379,7 +413,7 @@ export const gameService = {
         },
       };
 
-      console.log("Game state fetched successfully:", gameState);
+      console.log("Processed game state:", gameState);
       return gameState;
     } catch (error) {
       console.error("Error in getGameState:", error);

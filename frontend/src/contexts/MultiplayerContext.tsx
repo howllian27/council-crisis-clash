@@ -11,41 +11,20 @@ import { gameService } from "../services/gameService";
 import { v4 as uuidv4 } from "uuid";
 import { GamePhase, Scenario, GameState } from "../types/game";
 
-interface GameSession {
-  session_id: string;
-  host_id: string;
-  code: string;
-  players: Array<{
-    id: string;
-    name: string;
-    role: string;
-    isReady: boolean;
-    hasVoted: boolean;
-    isEliminated: boolean;
-    secretObjective: {
-      description: string;
-      isCompleted: boolean;
-      progress: number;
-      target: number;
-    };
-  }>;
-  resources: Array<{
-    type: string;
-    value: number;
-    maxValue: number;
-  }>;
-  currentRound: number;
-  phase: string;
-  currentScenario: Scenario | null;
-  roundStartTime: number;
-  timer_running: boolean;
-  timer_end_time: string | null;
-}
-
 interface Player {
   id: string;
   name: string;
+  role: string;
+  isReady: boolean;
   hasVoted: boolean;
+  isEliminated: boolean;
+  vote_weight: number;
+  secretObjective: {
+    description: string;
+    isCompleted: boolean;
+    progress: number;
+    target: number;
+  };
 }
 
 interface Resource {
@@ -72,6 +51,24 @@ interface WebSocketMessage {
     message: string;
     [key: string]: unknown;
   };
+}
+
+interface GameSession {
+  session_id: string;
+  host_id: string;
+  code: string;
+  players: Player[];
+  resources: Array<{
+    type: string;
+    value: number;
+    maxValue: number;
+  }>;
+  currentRound: number;
+  phase: string;
+  currentScenario: Scenario | null;
+  roundStartTime: number;
+  timer_running: boolean;
+  timer_end_time: string | null;
 }
 
 export type MultiplayerContextType = {
@@ -366,20 +363,31 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
                 const updatedSession = {
                   ...prev,
                   players: Object.values(latestGameState.players).map(
-                    (player) => ({
-                      id: player.id,
-                      name: player.name,
-                      role: player.role,
-                      isReady: true,
-                      hasVoted: player.has_voted,
-                      isEliminated: player.is_eliminated,
-                      secretObjective: {
-                        description: player.secret_incentive,
-                        isCompleted: false,
-                        progress: 0,
-                        target: 3,
-                      },
-                    })
+                    (player) => {
+                      console.log(
+                        "Mapping player in MultiplayerContext:",
+                        player
+                      );
+                      const voteWeight =
+                        typeof player.vote_weight === "string"
+                          ? parseFloat(player.vote_weight)
+                          : player.vote_weight || 1.0;
+                      return {
+                        id: player.id,
+                        name: player.name,
+                        role: player.role,
+                        isReady: player.is_active,
+                        hasVoted: player.has_voted,
+                        isEliminated: player.is_eliminated,
+                        vote_weight: voteWeight,
+                        secretObjective: {
+                          description: player.secret_incentive,
+                          isCompleted: false,
+                          progress: 0,
+                          target: 3,
+                        },
+                      };
+                    }
                   ),
                   resources: [
                     {
@@ -567,6 +575,7 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
             isReady: true,
             hasVoted: false,
             isEliminated: false,
+            vote_weight: 1.0,
             secretObjective: {
               description:
                 "Ensure the 'trust' resource stays above 60% for 3 rounds",
@@ -633,6 +642,7 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
           isReady: true,
           hasVoted: player.has_voted,
           isEliminated: player.is_eliminated,
+          vote_weight: player.vote_weight ?? 1.0,
           secretObjective: {
             description: player.secret_incentive,
             isCompleted: false,

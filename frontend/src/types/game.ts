@@ -26,6 +26,7 @@ export interface Player {
   isReady: boolean;
   hasVoted: boolean;
   isEliminated: boolean;
+  vote_weight: number;
   secretObjective: {
     description: string;
     isCompleted: boolean;

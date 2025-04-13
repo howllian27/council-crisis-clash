@@ -13,6 +13,7 @@ import {
 import { gameService } from "../services/gameService";
 import LoadingOverlay from "../components/LoadingOverlay";
 import Timer from "../components/Timer";
+import PlayerListPanel from "../components/PlayerListPanel";
 
 // Define interface for vote counts
 interface VoteCounts {
@@ -67,6 +68,7 @@ const Game = () => {
             isReady: true,
             hasVoted: false,
             isEliminated: false,
+            vote_weight: 1.0,
             secretObjective: {
               description: "Debug objective",
               isCompleted: false,
@@ -658,6 +660,14 @@ const Game = () => {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Right column - Player List */}
+          <div className="lg:col-span-1">
+            <PlayerListPanel
+              players={session.players}
+              currentPlayerId={playerId}
+            />
           </div>
         </div>
       </div>
