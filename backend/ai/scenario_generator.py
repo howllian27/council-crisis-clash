@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import json
 import asyncio
 import logging
+import random
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -322,70 +323,82 @@ class ScenarioGenerator:
             # Return a fallback outcome
             return self._create_fallback_outcome()
 
-    async def generate_secret_incentive(
-        self,
-        scenario_title: str,
-        scenario_description: str
-    ) -> str:
+    async def generate_secret_incentive(self, scenario_title: str, scenario_description: str) -> dict:
         """
         Generate a secret incentive text that thematically aligns with the scenario.
-        Returns a single short string that can be handed out to one random player.
+        The returned dict includes:
+        - "incentive": a short string describing the hidden objective,
+        - "target_option": which option (e.g. "option1") the player must choose,
+        - "bonus_weight": a float (between -0.5 and +0.5) indicating the bonus that will be permanently added to the player's voting weight.
+        
+        The AI must choose the target option from these four options: "option1", "option2", "option3", "option4"
+        and explicitly instruct the selected player that if they vote for the chosen option, they will receive the bonus.
         """
         try:
-            # Build the prompt with relevant context
+            # Build the AI prompt. We do not select the option or bonus weight in our code now.
             prompt = f"""
             You are a game master generating a secret incentive for a futuristic government council scenario.
             The scenario is:
             TITLE: {scenario_title}
             DESCRIPTION: {scenario_description}
 
-            Write one or two sentences that give the selected player
-            a hidden motivation or objective that directly ties into the scenario above.
-            The text should NOT reveal game mechanics; it should be purely narrative flavor.
-            The incentive MUST prompt the selected player to vote for a specific option.
-
-            You must explicitly mention a value between -0.5 and 0.5 that will be added to the player's voting weightage but the incentive should not be complex and simply involve a justification for providing the player extra or reduced voting weightage.
+            Based solely on the narrative above, decide which voting option, from "option1", "option2", "option3", "option4",
+            would best further the hidden objective. Also, choose an appropriate bonus weight (a floating point number 
+            between -0.5 and +0.5) that will be added permanently to the player's voting weight if they vote for the chosen option.
+            Write one or two sentences of engaging story that instruct the selected player that if they vote for the chosen 
+            option, they will receive the extra bonus (e.g. "+0.3 voting weight"). The story can be dramatic or realistic but must be concise
             
-            Return the response as a JSON object with a single key "incentive" 
-            whose value is the incentive string, for example:
-            {{
-            "incentive": "Vote for the AI's sentience and the AI will reward you by rigging the voting results to give you an extra 0.5 voting weightage."
-            }}
+            Return your response as a JSON object with EXACTLY these three keys:
+            "incentive", "target_option", "bonus_weight".
+            The "incentive" should be the short narrative text, "target_option" the option string (e.g. "option2"), 
+            and "bonus_weight" the number.
             """
 
-            # Use your existing asynchronous approach
             response = await self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {
                         "role": "system",
                         "content": (
-                            "You are a helpful assistant that returns exactly one JSON object with the key 'incentive' "
-                            "which provides a short hidden objective for the player. Do not include extra keys or text."
+                            "You are a helpful assistant that returns a JSON object with exactly the keys "
+                            "'incentive', 'target_option', and 'bonus_weight'. Do not include any additional text."
                         )
                     },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
+                    {"role": "user", "content": prompt}
                 ],
                 temperature=0.7,
                 response_format={"type": "json_object"}
             )
 
-            # Parse the JSON response
             content = response.choices[0].message.content
+            logger.info(f"Raw AI incentive response: {content}")
+
+            # Parse the AI response into a JSON object.
             data = json.loads(content)
             incentive_text = data.get("incentive", "").strip()
-            if not incentive_text:
-                raise ValueError("No 'incentive' key found in JSON response.")
-            
-            return incentive_text
+            target_opt = data.get("target_option", "").strip()
+            weight_str = data.get("bonus_weight", "0")
+
+            if not incentive_text or not target_opt or weight_str is None:
+                raise ValueError("Missing incentive, target_option, or bonus_weight from AI output.")
+
+            bonus_w = float(weight_str)
+
+            return {
+                "incentive": incentive_text,
+                "target_option": target_opt,
+                "bonus_weight": bonus_w
+            }
 
         except Exception as e:
             logger.error(f"Error generating secret incentive: {str(e)}")
-            # Return a fallback or blank if needed
-            return "Secretly push the council towards questionable alliances for personal gain."
+            # Fallback incentive if something goes wrong.
+            return {
+                "incentive": "Secretly align with shadowy interests. Vote for option1 to gain +0.2 voting weight for the rest of the game.",
+                "target_option": "option1",
+                "bonus_weight": 0.2
+            }
+
             
     def _create_fallback_outcome(self) -> Tuple[str, Dict[str, int]]:
         return (

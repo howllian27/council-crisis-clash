@@ -752,18 +752,18 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
 
   // Update the handleTimerExpiration function
   const handleTimerExpiration = useCallback(() => {
-    console.log("=== Timer Expiration Handler ===");
-    console.log("Current session state:", currentSession);
-    console.log("Current game phase:", gamePhase);
-    console.log("Timestamp:", new Date().toISOString());
+    // console.log("=== Timer Expiration Handler ===");
+    // console.log("Current session state:", currentSession);
+    // console.log("Current game phase:", gamePhase);
+    // console.log("Timestamp:", new Date().toISOString());
 
     // Update phase to results when timer expires
     if (currentSession?.session_id) {
-      console.log("Timer expired, transitioning to results phase");
+      // console.log("Timer expired, transitioning to results phase");
       gameService
         .updateGamePhase(currentSession.session_id, "results")
         .then(() => {
-          console.log("Game phase updated to results on server");
+          // console.log("Game phase updated to results on server");
           // The subscription will handle updating the local state
         })
         .catch((error) => {
@@ -775,12 +775,12 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
 
   // Remove the timer check effect since timer is now managed server-side
   useEffect(() => {
-    console.log("=== Phase Change Effect ===");
-    console.log("Game phase changed to:", gamePhase);
-    console.log("Current session phase:", currentSession?.phase);
-    console.log("Timer running:", currentSession?.timer_running);
-    console.log("Timer end time:", currentSession?.timer_end_time);
-    console.log("Timestamp:", new Date().toISOString());
+    // console.log("=== Phase Change Effect ===");
+    // console.log("Game phase changed to:", gamePhase);
+    // console.log("Current session phase:", currentSession?.phase);
+    // console.log("Timer running:", currentSession?.timer_running);
+    // console.log("Timer end time:", currentSession?.timer_end_time);
+    // console.log("Timestamp:", new Date().toISOString());
 
     if (gamePhase === "scenario") {
       console.log("Scenario phase active - timer should be running on server");
@@ -798,10 +798,10 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       try {
-        console.log("=== Casting Vote ===");
-        console.log("Option ID:", optionId);
-        console.log("Player ID:", playerId);
-        console.log("Current session state:", currentSession);
+        // console.log("=== Casting Vote ===");
+        // console.log("Option ID:", optionId);
+        // console.log("Player ID:", playerId);
+        // console.log("Current session state:", currentSession);
 
         await gameService.recordVote(
           currentSession.session_id,

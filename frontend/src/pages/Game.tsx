@@ -650,14 +650,14 @@ const currentPlayer: GamePlayer | undefined = session?.players?.find(
   }
 
   // Debug logging for scenario data
-  console.log("Current Scenario Data:", {
-    title: currentScenario.title,
-    description: currentScenario.description,
-    consequences: currentScenario.consequences,
-    options: currentScenario.options,
-    round: session.currentRound,
-    phase: currentGamePhase,
-  });
+  // console.log("Current Scenario Data:", {
+  //   title: currentScenario.title,
+  //   description: currentScenario.description,
+  //   consequences: currentScenario.consequences,
+  //   options: currentScenario.options,
+  //   round: session.currentRound,
+  //   phase: currentGamePhase,
+  // });
 
   // Handle vote submission
   const handleVote = (optionId: string) => {

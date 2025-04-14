@@ -2,12 +2,12 @@ import { createClient } from "@supabase/supabase-js";
 import { v4 as uuidv4 } from "uuid";
 
 // Log all environment variables (excluding sensitive data)
-console.log("Environment variables loaded:", {
-  hasUrl: !!import.meta.env.VITE_SUPABASE_URL,
-  hasKey: !!import.meta.env.VITE_SUPABASE_KEY,
-  urlLength: import.meta.env.VITE_SUPABASE_URL?.length,
-  keyLength: import.meta.env.VITE_SUPABASE_KEY?.length,
-});
+// console.log("Environment variables loaded:", {
+//   hasUrl: !!import.meta.env.VITE_SUPABASE_URL,
+//   hasKey: !!import.meta.env.VITE_SUPABASE_KEY,
+//   urlLength: import.meta.env.VITE_SUPABASE_URL?.length,
+//   keyLength: import.meta.env.VITE_SUPABASE_KEY?.length,
+// });
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_KEY;
@@ -35,7 +35,7 @@ const formattedUrl = supabaseUrl.startsWith("http")
   ? supabaseUrl
   : `https://${supabaseUrl}`;
 
-console.log("Using Supabase URL:", formattedUrl);
+// console.log("Using Supabase URL:", formattedUrl);
 
 let supabase;
 try {

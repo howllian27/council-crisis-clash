@@ -78,12 +78,11 @@ async def check_timer(session_id: str):
         while True:
             # Get current game state
             game = await GameState.load(session_id)
-            # logger.info(f"Timer check - Game state: {game.dict() if game else 'None'}")
-            
+            # logger.info(f"Timer check - Game state: {game.dict() if game else 'None'}")         
             if not game:
                 logger.info(f"Game not found for session {session_id}, stopping timer")
                 break
-                
+               
             if not game.timer_running:
                 logger.info(f"Timer not running for session {session_id}, stopping timer check")
                 break
@@ -588,6 +587,21 @@ async def get_voting_options(session_id: str):
         logger.error(f"Error generating voting options: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error generating voting options: {str(e)}")
 
+async def update_player_weight(session_id: str, player_id: str, new_weight: float):
+    """
+    Example function to permanently update a player's weight in your database.
+    Adjust to your real DB logic.
+    """
+    try:
+        result = supabase.table("players").update({"vote_weight": new_weight}).eq("player_id", player_id).eq("session_id", session_id).execute()
+        if not result.data:
+            logger.error("Failed to update player's vote_weight in database")
+            raise Exception("Failed to update player's vote_weight in database")
+        return True
+    except Exception as e:
+        logger.error(f"Error in update_player_weight: {str(e)}")
+        return False
+
 @app.post("/api/games/{session_id}/scenario/outcome")
 async def get_voting_outcome(session_id: str):
     try:
@@ -668,12 +682,33 @@ async def get_voting_outcome(session_id: str):
                 
             # Count votes for each option
             vote_counts = {}
-            for player_id, vote in voting_results.items():
-                # Ensure vote is a string to prevent unhashable dict errors
-                vote_str = str(vote)
-                if vote_str not in vote_counts:
-                    vote_counts[vote_str] = 0
-                vote_counts[vote_str] += 1
+            round_key = str(game.current_round)
+            voting_results = game.voting_results[round_key]
+
+            # Retrieve the secret incentive for this round
+            incentive = secret_incentives.get(session_id, {}).get(game.current_round)
+            
+            for voter_id, vote in voting_results.items():
+                player_obj = game.players[voter_id]  # This is a Player object
+                base_weight = getattr(player_obj, "vote_weight", 1.0)
+
+                # If the incentive applies
+                if incentive and voter_id == incentive["player_id"] and vote == incentive["target_option"]:
+                    bonus = float(incentive["bonus_weight"])
+                    new_weight = base_weight + bonus
+                    if new_weight != base_weight:
+                        # Update DB
+                        supabase.table("players").update({
+                            "vote_weight": new_weight
+                        }).eq("player_id", voter_id).eq("session_id", session_id).execute()
+
+                        # Also update local object
+                        player_obj.vote_weight = new_weight
+                        base_weight = new_weight
+
+                vote_counts.setdefault(vote, 0)
+                vote_counts[vote] += base_weight
+
                 
             logger.info(f"Vote counts: {vote_counts}")
                 
@@ -859,14 +894,16 @@ async def generate_secret_incentive(session_id: str, round: int):
             scenario_description = current_scenario.get("description", "")
             
             # Use your scenario generator to generate incentive text.
-            incentive_text = await scenario_generator.generate_secret_incentive(
+            incentive_response = await scenario_generator.generate_secret_incentive(
                 scenario_title,
                 scenario_description
             )
             
             new_incentive = {
                 "player_id": selected_player_id,
-                "text": incentive_text
+                "text": incentive_response["incentive"],
+                "target_option": incentive_response["target_option"],
+                "bonus_weight": float(incentive_response["bonus_weight"])
             }
             
             # Store the incentive.
