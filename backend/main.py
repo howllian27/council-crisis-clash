@@ -43,7 +43,7 @@ app = FastAPI(title="Project Oversight API")
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8080"],  # Allow frontend origin
+    allow_origins=["*"],  # Allow frontend origin
     allow_credentials=True,
     allow_methods=["*"],  # Allow all methods
     allow_headers=["*"],  # Allow all headers
@@ -132,9 +132,6 @@ scenario_tasks: Dict[str, asyncio.Task] = {}
 
 # Add a lock for outcome generation to prevent multiple generations
 outcome_generation_locks: Dict[str, asyncio.Lock] = {}
-
-# Store secret incentives for each round
-secret_incentives: Dict[str, Dict[int, Dict[str, str]]] = {}
 
 def generate_session_code():
     """Generate a random 6-digit alphanumeric code."""
@@ -472,7 +469,7 @@ async def update_timer(session_id: str, request: Request):
         # If starting the timer, set the end time to 60 seconds from now
         if updates.get("timer_running", False):
             # Use timezone-naive datetime for consistency
-            end_time = datetime.utcnow().replace(tzinfo=None) + timedelta(seconds=60)
+            end_time = datetime.utcnow().replace(tzinfo=None) + timedelta(seconds=120)
         else:
             end_time = None
             
@@ -892,11 +889,15 @@ async def generate_secret_incentive(session_id: str, round: int):
             current_scenario = game.current_scenario or {}
             scenario_title = current_scenario.get("title", "Unknown Crisis")
             scenario_description = current_scenario.get("description", "")
+            current_scenario_options = game.current_options
+
+            scenario_options = str(current_scenario_options)
             
             # Use your scenario generator to generate incentive text.
             incentive_response = await scenario_generator.generate_secret_incentive(
                 scenario_title,
-                scenario_description
+                scenario_description,
+                scenario_options
             )
             
             new_incentive = {
@@ -970,7 +971,6 @@ if __name__ == "__main__":
     print(f"Hostname: {hostname}")
     print(f"Local IP: {local_ip}")
     print(f"Access the API at:")
-    print(f"- Local: http://localhost:8000")
     print(f"- Network: http://{local_ip}:8000")
     print(f"- All interfaces: http://0.0.0.0:8000\n")
     uvicorn.run(app, host="0.0.0.0", port=8000) 

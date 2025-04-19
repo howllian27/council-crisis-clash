@@ -1,7 +1,11 @@
 const handleVotingOutcome = async () => {
   try {
-    const response = await fetch(`/api/games/${sessionId}/scenario/outcome`, {
+    const response = await fetch(`${import.meta.env.VITE_BACKEND_URL}/api/games/${sessionId}/scenario/outcome`, {
       method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
     });
 
     if (!response.ok) {

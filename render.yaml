@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: project-oversight-api
+    env: python
+    buildCommand: ""
+    startCommand: python run.py
+    envVars:
+      - key: PORT
+        value: 10000
+    plan: free
+    region: oregon
+    buildFilter:
+      paths:
+        - backend/**
+    autoDeploy: true
+    repo: https://github.com/howllian27/council-crisis-clash
+    rootDir: backend

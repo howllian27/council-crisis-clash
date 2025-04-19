@@ -8,20 +8,24 @@ const WebSocketTest: React.FC = () => {
     "test-session-" + Math.random().toString(36).substr(2, 9)
   );
 
-  const { sendMessage } = useWebSocket("ws://localhost:8000", sessionId, {
-    onMessage: (message) => {
-      setMessages((prev) => [...prev, JSON.stringify(message)]);
-    },
-    onConnect: () => {
-      setMessages((prev) => [...prev, "Connected to WebSocket server"]);
-    },
-    onDisconnect: () => {
-      setMessages((prev) => [...prev, "Disconnected from WebSocket server"]);
-    },
-    onError: (error) => {
-      setMessages((prev) => [...prev, `WebSocket error: ${error}`]);
-    },
-  });
+  const { sendMessage } = useWebSocket(
+    "wss://https://45d3-185-25-195-104.ngrok-free.app",
+    sessionId,
+    {
+      onMessage: (message) => {
+        setMessages((prev) => [...prev, JSON.stringify(message)]);
+      },
+      onConnect: () => {
+        setMessages((prev) => [...prev, "Connected to WebSocket server"]);
+      },
+      onDisconnect: () => {
+        setMessages((prev) => [...prev, "Disconnected from WebSocket server"]);
+      },
+      onError: (error) => {
+        setMessages((prev) => [...prev, `WebSocket error: ${error}`]);
+      },
+    }
+  );
 
   const handleJoinGame = () => {
     if (playerName) {
