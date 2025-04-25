@@ -15,6 +15,7 @@ import LoadingOverlay from "../components/LoadingOverlay";
 import Timer from "../components/Timer";
 import PlayerListPanel from "../components/PlayerListPanel";
 import SecretIncentiveNotification from "../components/SecretIncentiveNotification";
+import { GamePhase } from "../types/game";
 
 // Define interface for vote counts
 interface VoteCounts {
@@ -56,6 +57,7 @@ const Game = () => {
     loadingMessage,
     setIsLoading,
     setLoadingMessage,
+    startGame,
   } = useMultiplayer();
 
   // Debug mode state to bypass session check for direct navigation
@@ -67,15 +69,22 @@ const Game = () => {
   const [incentiveText, setIncentiveText] = useState<string>("");
   const [isIncentiveLoading, setIsIncentiveLoading] = useState<boolean>(false);
   const [fetchedRound, setFetchedRound] = useState<number | null>(null);
+  // Add state for button debouncing and phase transition
+  const [isStartButtonDisabled, setIsStartButtonDisabled] = useState(false);
+  const [isPhaseTransition, setIsPhaseTransition] = useState(false);
+  const [startButtonTimeout, setStartButtonTimeout] =
+    useState<NodeJS.Timeout | null>(null);
+  const [previousGamePhase, setPreviousGamePhase] = useState<GamePhase | null>(
+    null
+  );
 
   // Use either the current session or debug session
   const session = currentSession || debugSession;
 
   // Declare currentPlayer before using it in useEffect dependencies.
-const currentPlayer: GamePlayer | undefined = session?.players?.find(
-  (p: GamePlayer) => p.id === playerId
-);
-
+  const currentPlayer: GamePlayer | undefined = session?.players?.find(
+    (p: GamePlayer) => p.id === playerId
+  );
 
   // Set game phase based on session state - only use session phase if available
   const currentGamePhase = session?.phase || gamePhase || "lobby";
@@ -105,7 +114,7 @@ const currentPlayer: GamePlayer | undefined = session?.players?.find(
             },
           }
         );
-        
+
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -120,7 +129,12 @@ const currentPlayer: GamePlayer | undefined = session?.players?.find(
     if (currentGamePhase === "scenario") {
       generateIncentive();
     }
-  }, [session?.session_id, session?.currentRound, currentGamePhase, currentPlayer]);
+  }, [
+    session?.session_id,
+    session?.currentRound,
+    currentGamePhase,
+    currentPlayer,
+  ]);
 
   useEffect(() => {
     const pollForSecretIncentive = async () => {
@@ -152,7 +166,9 @@ const currentPlayer: GamePlayer | undefined = session?.players?.find(
         let incentive: Partial<IncentiveData> = {};
 
         while (attempts < maxAttempts) {
-          console.log(`Polling attempt ${attempts + 1} for round ${session.currentRound}`);
+          console.log(
+            `Polling attempt ${attempts + 1} for round ${session.currentRound}`
+          );
           const response = await fetch(
             `http://localhost:8000/api/games/${session.session_id}/secret_incentive?player_id=${playerId}&round=${session.currentRound}`
           );
@@ -178,7 +194,9 @@ const currentPlayer: GamePlayer | undefined = session?.players?.find(
             incentiveText: incentive.text,
           });
         } else {
-          console.log("No secret incentive available yet; leaving state unchanged.");
+          console.log(
+            "No secret incentive available yet; leaving state unchanged."
+          );
           setSelectedPlayerId(null);
           setIncentiveText("");
         }
@@ -195,8 +213,13 @@ const currentPlayer: GamePlayer | undefined = session?.players?.find(
     if (currentGamePhase === "scenario") {
       pollForSecretIncentive();
     }
-  }, [session?.session_id, session?.currentRound, currentGamePhase, playerId, fetchedRound]);
-  
+  }, [
+    session?.session_id,
+    session?.currentRound,
+    currentGamePhase,
+    playerId,
+    fetchedRound,
+  ]);
 
   // Clear selection in results phase
   useEffect(() => {
@@ -306,19 +329,11 @@ const currentPlayer: GamePlayer | undefined = session?.players?.find(
   // Fetch outcome when phase changes to results
   useEffect(() => {
     if (currentGamePhase === "results" && session?.session_id) {
-      console.log("Results phase detected, checking for outcome...");
-
       // Check if the outcome is already in the session
       if (session.currentScenario?.outcome) {
-        console.log(
-          "Using outcome from session:",
-          session.currentScenario.outcome
-        );
         setOutcome(session.currentScenario.outcome);
         return;
       }
-
-      console.log("No outcome in session, fetching from API...");
 
       // Call the backend API to generate the outcome
       fetch(
@@ -337,8 +352,20 @@ const currentPlayer: GamePlayer | undefined = session?.players?.find(
           return response.json();
         })
         .then((data) => {
-          console.log("Received outcome:", data);
-          setOutcome(data.outcome);
+          if (data.outcome) {
+            setOutcome(data.outcome);
+            // Update the session with the new outcome
+            setCurrentSession((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                currentScenario: {
+                  ...prev.currentScenario,
+                  outcome: data.outcome,
+                },
+              };
+            });
+          }
         })
         .catch((error) => {
           console.error("Error fetching outcome:", error);
@@ -351,12 +378,15 @@ const currentPlayer: GamePlayer | undefined = session?.players?.find(
     currentGamePhase,
     session?.session_id,
     session?.currentScenario?.outcome,
+    setCurrentSession,
   ]);
 
   // Add a useEffect to fetch the game state directly when the component mounts
   useEffect(() => {
     if (session?.session_id && !session.currentScenario) {
       console.log("Game component mounted, fetching game state directly...");
+      setIsLoading(true);
+      setLoadingMessage("Stand By for New Council Motion...");
       gameService
         .getGameState(session.session_id)
         .then((gameState) => {
@@ -520,157 +550,211 @@ const currentPlayer: GamePlayer | undefined = session?.players?.find(
     currentGamePhase,
   ]);
 
-  // Update handleNextRound to clear outcome before starting next round
+  // Handle phase transitions
+  useEffect(() => {
+    if (gamePhase === "scenario" && previousGamePhase === "results") {
+      setIsLoading(true);
+      setIsPhaseTransition(true);
+      setLoadingMessage("The council session will now commence");
+    } else if (gamePhase === "outcome" && currentSession?.current_outcome) {
+      setIsLoading(false);
+      setIsPhaseTransition(false);
+    }
+    setPreviousGamePhase(gamePhase as GamePhase);
+  }, [gamePhase, currentSession?.current_outcome]);
+
+  // Clear loading state when component unmounts or when phase changes to scenario
+  useEffect(() => {
+    if (currentGamePhase === "scenario" && session?.currentScenario) {
+      setIsLoading(false);
+      setLoadingMessage("");
+      setIsStartButtonDisabled(false);
+      setIsPhaseTransition(false);
+    }
+  }, [
+    currentGamePhase,
+    session?.currentScenario,
+    setIsLoading,
+    setLoadingMessage,
+  ]);
+
+  // Handle next round with loading state
   const handleNextRound = async () => {
     if (!currentSession?.session_id) return;
 
     try {
+      // Set loading state before starting next round
+      setIsLoading(true);
+      setLoadingMessage("The council session will now commence");
       // Clear the current outcome before starting next round
       setOutcome("");
       // Call the backend to start the next round
       await nextRound();
     } catch (error) {
       console.error("Error starting next round:", error);
+      // Clear loading state on error
+      setIsLoading(false);
+      setLoadingMessage("");
     }
   };
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (startButtonTimeout) {
+        clearTimeout(startButtonTimeout);
+      }
+    };
+  }, [startButtonTimeout]);
 
   // Handle WebSocket messages
   useEffect(() => {
     const handleWebSocketMessage = (event: MessageEvent) => {
       const data = JSON.parse(event.data);
 
-      if (data.type === "scenario_update") {
+      if (data.type === "game_started" || data.type === "scenario_update") {
         // Update the session with the new scenario
         setCurrentSession((prev) => {
           if (!prev) return prev;
           return {
             ...prev,
             currentScenario: data.payload.scenario,
+            phase: data.payload.phase,
+            currentRound: data.payload.current_round,
           };
         });
+        // Clear loading state after scenario is received
+        setIsLoading(false);
+        setLoadingMessage("");
+        // Re-enable the start button after a delay
+        const timeout = setTimeout(() => {
+          setIsStartButtonDisabled(false);
+        }, 2000); // 2 second delay before re-enabling
+        setStartButtonTimeout(timeout);
+        // Clear phase transition state
+        setIsPhaseTransition(false);
       } else if (data.type === "loading_state") {
         // Update loading state
         setIsLoading(data.payload.isLoading);
-        setLoadingMessage(data.payload.message);
+        if (data.payload.message) {
+          setLoadingMessage(data.payload.message);
+        }
+        // Set phase transition state based on the message
+        setIsPhaseTransition(
+          data.payload.message === "The council session will now commence"
+        );
+      } else if (data.type === "phase_change") {
+        // Handle phase changes
+        if (
+          data.payload.phase === "scenario" &&
+          previousGamePhase === "results"
+        ) {
+          setIsLoading(true);
+          setIsPhaseTransition(true);
+          setLoadingMessage("The council session will now commence");
+        }
+        setPreviousGamePhase(data.payload.phase as GamePhase);
       }
     };
 
-    // Add WebSocket event listener
-    const ws = new WebSocket("ws://localhost:8000/ws");
-    ws.onmessage = handleWebSocketMessage;
+    // Only establish WebSocket connection if we have both session and player IDs
+    if (session?.session_id && playerId) {
+      const ws = new WebSocket(
+        `ws://localhost:8000/ws/${session.session_id}/${playerId}`
+      );
+      ws.onmessage = handleWebSocketMessage;
+      ws.onerror = (error) => {
+        console.error("WebSocket error:", error);
+        // Re-enable the start button on error
+        setIsStartButtonDisabled(false);
+        setIsPhaseTransition(false);
+      };
+      ws.onclose = () => {
+        console.log("WebSocket connection closed");
+        // Re-enable the start button on connection close
+        setIsStartButtonDisabled(false);
+        setIsPhaseTransition(false);
+      };
 
-    return () => {
-      ws.close();
-    };
-  }, [setCurrentSession, setIsLoading, setLoadingMessage]);
+      return () => {
+        ws.close();
+      };
+    }
+  }, [
+    session?.session_id,
+    playerId,
+    setCurrentSession,
+    setIsLoading,
+    setLoadingMessage,
+  ]);
+
+  // Update resources when outcome changes
+  useEffect(() => {
+    if (currentSession?.current_outcome?.resource_changes) {
+      const changes = currentSession.current_outcome.resource_changes;
+      setCurrentSession((prev) => ({
+        ...prev,
+        resources: {
+          ...prev.resources,
+          ...changes,
+        },
+      }));
+    }
+  }, [currentSession?.current_outcome?.resource_changes]);
 
   if (!session) {
     return <div>Error: No active session</div>;
   }
 
-  // Debug logging for session data
-  console.log("Session Data:", {
-    sessionId: session.session_id,
-    phase: session.phase,
-    currentScenario: session.currentScenario,
-    hasCurrentScenario: !!session.currentScenario,
-  });
-
   const currentScenario = session.currentScenario;
-  if (!currentScenario) {
-    console.error("No scenario available in session:", session);
-    console.error("Session phase:", session.phase);
-    console.error("Session currentRound:", session.currentRound);
-
-    // Try to fetch the game state directly
-    if (session.session_id) {
-      console.log("Attempting to fetch game state directly...");
-      gameService
-        .getGameState(session.session_id)
-        .then((gameState) => {
-          console.log("Directly fetched game state:", gameState);
-          console.log("Game state phase:", gameState.phase);
-          console.log(
-            "Game state current_scenario:",
-            gameState.current_scenario
-          );
-
-          // If we have a scenario in the game state but not in the session,
-          // update the session directly
-          if (gameState.current_scenario && !session.currentScenario) {
-            console.log(
-              "Found scenario in game state but not in session, updating session directly"
-            );
-
-            // Parse the scenario if it's a string
-            let parsedScenario = gameState.current_scenario;
-            if (typeof parsedScenario === "string") {
-              try {
-                parsedScenario = JSON.parse(parsedScenario);
-                console.log(
-                  "Successfully parsed scenario from string:",
-                  parsedScenario
-                );
-              } catch (e) {
-                console.error("Failed to parse current_scenario:", e);
-                return;
-              }
-            }
-
-            // Update the session directly with the scenario data
-            setCurrentSession((prev) => {
-              if (!prev) return prev;
-              return {
-                ...prev,
-                currentScenario: {
-                  title: parsedScenario.title
-                    ? parsedScenario.title.replace(/^"|"$/g, "")
-                    : "Untitled Scenario",
-                  description:
-                    parsedScenario.description || "No description available",
-                  consequences:
-                    parsedScenario.consequences || "No consequences specified.",
-                  options: parsedScenario.options
-                    ? parsedScenario.options.map((opt, index) => ({
-                        id: opt.id || `option${index + 1}`,
-                        text: opt.text || `Option ${index + 1}`,
-                      }))
-                    : [],
-                },
-              };
-            });
+  if (!currentScenario && currentGamePhase === "scenario") {
+    // Show loading overlay instead of error message
+    return (
+      <div className="min-h-screen w-full bg-gradient-to-b from-black to-gray-900 p-4 pb-16">
+        <LoadingOverlay
+          message={
+            isPhaseTransition
+              ? "The council session will now commence"
+              : "Stand By for New Council Motion..."
           }
-        })
-        .catch((error) => {
-          console.error("Error fetching game state directly:", error);
-        });
-    }
-
-    return <div>Error: No scenario available</div>;
+        />
+      </div>
+    );
   }
-
-  // Debug logging for scenario data
-  // console.log("Current Scenario Data:", {
-  //   title: currentScenario.title,
-  //   description: currentScenario.description,
-  //   consequences: currentScenario.consequences,
-  //   options: currentScenario.options,
-  //   round: session.currentRound,
-  //   phase: currentGamePhase,
-  // });
 
   // Handle vote submission
   const handleVote = (optionId: string) => {
     if (currentSession) {
       castVote(optionId);
     } else {
-      console.log("Debug mode: Vote cast for", optionId);
       // Update debug session to show voted status
       const updatedSession = { ...debugSession };
       updatedSession.players = updatedSession.players.map((p) =>
         p.id === playerId ? { ...p, hasVoted: true } : p
       );
       setDebugSession(updatedSession);
+    }
+  };
+
+  // Handle start game with debouncing
+  const handleStartGame = async () => {
+    if (isStartButtonDisabled) return;
+
+    setIsStartButtonDisabled(true);
+    setIsLoading(true);
+    setLoadingMessage("Starting game...");
+
+    try {
+      await startGame();
+    } catch (error) {
+      console.error("Error starting game:", error);
+      // Re-enable the start button after a delay on error
+      const timeout = setTimeout(() => {
+        setIsStartButtonDisabled(false);
+      }, 2000); // 2 second delay before re-enabling
+      setStartButtonTimeout(timeout);
+      setIsLoading(false);
+      setLoadingMessage("");
     }
   };
 
@@ -710,8 +794,18 @@ const currentPlayer: GamePlayer | undefined = session?.players?.find(
           </div>
 
           <div className="flex gap-4">
-            <Button variant="outline" size="sm">
-              Game Rules
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleStartGame}
+              disabled={isStartButtonDisabled}
+              className={cn(
+                "transition-colors duration-200",
+                isStartButtonDisabled &&
+                  "opacity-50 cursor-not-allowed bg-gray-700 hover:bg-gray-700"
+              )}
+            >
+              {isStartButtonDisabled ? "Starting..." : "Start Game"}
             </Button>
             <Button variant="ghost" size="sm" onClick={handleLeave}>
               Exit Game
@@ -776,7 +870,7 @@ const currentPlayer: GamePlayer | undefined = session?.players?.find(
               <div className="glass-panel p-6 animate-fade-in text-justify">
                 <h2 className="text-2xl font-bold mb-4 neon-glow">Results</h2>
 
-                {/* Voting Results Section */}
+                {/* Voting Results Section - Show immediately */}
                 {currentScenario?.options && (
                   <div className="mb-6 p-4 border border-neon-pink rounded-md bg-neon-pink bg-opacity-5">
                     <h3 className="font-semibold text-neon-pink mb-3">
@@ -826,8 +920,23 @@ const currentPlayer: GamePlayer | undefined = session?.players?.find(
                   </div>
                 )}
 
-                {/* Outcome Section - Only show if we have an outcome */}
-                {outcome && <p className="text-gray-300 mb-6">{outcome}</p>}
+                {/* Outcome Section - Show loading state while outcome is being generated */}
+                {!outcome ? (
+                  <div className="glass-panel p-6 mb-6">
+                    <h3 className="text-xl font-semibold mb-4">
+                      Society is reacting to your decision...
+                    </h3>
+                    <p className="text-gray-300">
+                      The consequences of the council's choice are being
+                      determined...
+                    </p>
+                  </div>
+                ) : (
+                  <div className="glass-panel p-6 mb-6">
+                    <h3 className="text-xl font-semibold mb-4">Outcome</h3>
+                    <p className="text-gray-300">{outcome}</p>
+                  </div>
+                )}
 
                 <div className="flex justify-end">
                   <Button onClick={handleNextRound} glow>

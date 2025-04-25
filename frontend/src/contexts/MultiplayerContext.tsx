@@ -724,12 +724,18 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
 
     try {
       console.log("Starting game...");
+      // Set loading state before making the API call
+      setIsLoading(true);
+      setLoadingMessage("Stand By for New Council Motion...");
       await gameService.startGame(currentSession.session_id);
       console.log("Game started successfully");
       // Navigation will be handled by the subscription when phase changes
     } catch (err) {
       console.error("Error starting game:", err);
       setError("Failed to start game. Please try again.");
+      // Clear loading state on error
+      setIsLoading(false);
+      setLoadingMessage("");
     }
   };
 

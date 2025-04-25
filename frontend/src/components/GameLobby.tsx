@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import Button from "./Button";
 import { useMultiplayer } from "../contexts/MultiplayerContext";
 import { cn } from "../lib/utils";
@@ -22,6 +22,19 @@ const GameLobby = () => {
     leaveSession,
   } = useMultiplayer();
 
+  const [isStartButtonDisabled, setIsStartButtonDisabled] = useState(false);
+  const [startButtonTimeout, setStartButtonTimeout] =
+    useState<NodeJS.Timeout | null>(null);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (startButtonTimeout) {
+        clearTimeout(startButtonTimeout);
+      }
+    };
+  }, [startButtonTimeout]);
+
   if (!currentSession) {
     return <div>Loading...</div>;
   }
@@ -37,8 +50,20 @@ const GameLobby = () => {
     setPlayerReady(!isReady);
   };
 
-  const handleStartGame = () => {
-    startGame();
+  const handleStartGame = async () => {
+    if (isStartButtonDisabled) return;
+
+    setIsStartButtonDisabled(true);
+    try {
+      await startGame();
+    } catch (error) {
+      console.error("Error starting game:", error);
+      // Re-enable the start button after a delay on error
+      const timeout = setTimeout(() => {
+        setIsStartButtonDisabled(false);
+      }, 2000); // 2 second delay before re-enabling
+      setStartButtonTimeout(timeout);
+    }
   };
 
   const handleCopyCode = () => {
@@ -136,10 +161,15 @@ const GameLobby = () => {
               <div className="flex flex-col gap-2">
                 <Button
                   glow={playersArray.length === 4}
-                  disabled={playersArray.length < 4}
+                  disabled={playersArray.length < 4 || isStartButtonDisabled}
                   onClick={handleStartGame}
+                  className={cn(
+                    "transition-colors duration-200",
+                    isStartButtonDisabled &&
+                      "opacity-50 cursor-not-allowed bg-gray-700 hover:bg-gray-700"
+                  )}
                 >
-                  Start Game
+                  {isStartButtonDisabled ? "Starting..." : "Start Game"}
                 </Button>
                 {playersArray.length < 4 && (
                   <span className="text-sm text-muted-foreground">

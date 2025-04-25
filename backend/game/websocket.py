@@ -16,6 +16,7 @@ class GameWebSocketManager:
         self.timer_tasks: Dict[str, asyncio.Task] = {}
         self.timer_start_times: Dict[str, datetime] = {}
         self.timer_durations: Dict[str, int] = {}  # in seconds
+        self.loading_states: Dict[str, bool] = {}  # Track loading state per session
 
     async def connect(self, websocket: WebSocket, session_id: str, player_id: str):
         await websocket.accept()
@@ -23,6 +24,17 @@ class GameWebSocketManager:
             self.active_connections[session_id] = {}
         self.active_connections[session_id][player_id] = websocket
         logger.info(f"Player {player_id} connected to session {session_id}")
+        
+        # Send current loading state to newly connected player
+        if session_id in self.loading_states and self.loading_states[session_id]:
+            await websocket.send_json({
+                "type": "loading_state",
+                "payload": {
+                    "isLoading": True,
+                    "message": "Stand By for New Council Motion..."
+                }
+            })
+        
         await self.check_and_start_timer(session_id)
 
     async def disconnect(self, session_id: str, player_id: str):
@@ -33,12 +45,24 @@ class GameWebSocketManager:
                 if session_id in self.timer_tasks:
                     self.timer_tasks[session_id].cancel()
                     del self.timer_tasks[session_id]
+                # Clear loading state when all players disconnect
+                if session_id in self.loading_states:
+                    del self.loading_states[session_id]
         logger.info(f"Player {player_id} disconnected from session {session_id}")
 
     async def broadcast_to_session(self, session_id: str, message: dict):
         if session_id in self.active_connections:
+            # Update loading state tracking if this is a loading state message
+            if message.get("type") == "loading_state":
+                self.loading_states[session_id] = message["payload"]["isLoading"]
+            
+            # Broadcast to all connected clients
             for connection in self.active_connections[session_id].values():
-                await connection.send_json(message)
+                try:
+                    await connection.send_json(message)
+                except Exception as e:
+                    logger.error(f"Error broadcasting message to session {session_id}: {str(e)}")
+                    # Don't raise the exception - continue trying to send to other clients
 
     async def check_and_start_timer(self, session_id: str):
         """Check if all players are connected and start the timer if they are."""
@@ -86,7 +110,7 @@ class GameWebSocketManager:
         self.timer_start_times[session_id] = datetime.utcnow()
         
         # Set the timer duration to 60 seconds (1 minute)
-        self.timer_durations[session_id] = 60
+        self.timer_durations[session_id] = 90
         
         # Cancel any existing timer task
         if session_id in self.timer_tasks and not self.timer_tasks[session_id].done():
@@ -98,7 +122,7 @@ class GameWebSocketManager:
         logger.info(f"Created new timer task for session {session_id}")
         
         # Broadcast timer started message
-        await self.broadcast_to_session(session_id, {"type": "timer_started", "duration": 60})
+        await self.broadcast_to_session(session_id, {"type": "timer_started", "duration": 90})
         logger.info(f"Broadcasted timer started message for session {session_id}")
 
     async def check_timer(self, session_id: str):
@@ -108,7 +132,7 @@ class GameWebSocketManager:
         try:
             # Get the start time and duration
             start_time = self.timer_start_times.get(session_id)
-            duration = self.timer_durations.get(session_id, 60)  # Default to 60 seconds
+            duration = self.timer_durations.get(session_id, 90)  # Default to 60 seconds
             
             if not start_time:
                 logger.info(f"Timer start time not found for session {session_id}, stopping timer check")
@@ -278,6 +302,18 @@ class GameWebSocketManager:
             # Clean up timer start time
             if session_id in self.timer_start_times:
                 del self.timer_start_times[session_id]
+
+    async def clear_loading_state(self, session_id: str):
+        """Clear the loading state for a session."""
+        if session_id in self.loading_states:
+            del self.loading_states[session_id]
+            await self.broadcast_to_session(session_id, {
+                "type": "loading_state",
+                "payload": {
+                    "isLoading": False,
+                    "message": ""
+                }
+            })
 
 # Create a global instance of the WebSocket manager
 manager = GameWebSocketManager() 

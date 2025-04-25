@@ -112,7 +112,7 @@ export const gameService = {
       console.log("Host name:", hostName);
 
       console.log("Making API request to http://localhost:8000/api/games");
-      const response = await fetch(`${API_BASE_URL}/api/games`, {
+      const response = await fetch(`http://localhost:8000/api/games`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -205,7 +205,7 @@ export const gameService = {
       });
 
       const response = await fetch(
-        `${API_BASE_URL}/api/games/${sessionId}/join`,
+        `http://localhost:8000/api/games/${sessionId}/join`,
         {
           method: "POST",
           headers: {
@@ -285,7 +285,7 @@ export const gameService = {
     try {
       console.log("Starting game:", sessionId);
       const response = await fetch(
-        `${API_BASE_URL}/api/games/${sessionId}/start`,
+        `http://localhost:8000/api/games/${sessionId}/start`,
         {
           method: "POST",
           headers: {
@@ -623,7 +623,7 @@ export const gameService = {
   ) {
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/games/${sessionId}/players/${playerId}`,
+        `http://localhost:8000/api/games/${sessionId}/players/${playerId}`,
         {
           method: "PATCH",
           headers: {
@@ -688,7 +688,7 @@ export const gameService = {
 
       // Update through API
       const response = await fetch(
-        `${API_BASE_URL}/api/games/${sessionId}/phase`,
+        `http://localhost:8000/api/games/${sessionId}/phase`,
         {
           method: "PATCH",
           headers: {
@@ -720,7 +720,7 @@ export const gameService = {
 
       // Update through API
       const response = await fetch(
-        `${API_BASE_URL}/api/games/${sessionId}/timer`,
+        `http://localhost:8000/api/games/${sessionId}/timer`,
         {
           method: "PATCH",
           headers: {

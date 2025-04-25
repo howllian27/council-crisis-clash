@@ -52,3 +52,20 @@ export interface Scenario {
   consequences: string;
   options: ScenarioOption[];
 }
+
+export interface GameSession {
+  session_id: string;
+  current_scenario: Scenario | null;
+  current_outcome: {
+    outcome: string;
+    resource_changes: Record<string, number>;
+  } | null;
+  phase: GamePhase;
+  currentRound: number;
+  players: Player[];
+  resources: Resource[];
+  voting_options: VotingOption[];
+  votes: Vote[];
+  created_at: string;
+  updated_at: string;
+}

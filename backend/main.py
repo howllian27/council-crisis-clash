@@ -342,12 +342,12 @@ async def get_game_state(session_id: str):
 @app.post("/api/games/{session_id}/start")
 async def start_game(session_id: str):
     try:
-        # Broadcast loading state to all players
+        # Broadcast loading state to all players immediately
         await manager.broadcast_to_session(session_id, {
             "type": "loading_state",
             "payload": {
                 "isLoading": True,
-                "message": "Generating next scenario..."
+                "message": "Stand By for New Council Motion..."
             }
         })
 
@@ -358,12 +358,14 @@ async def start_game(session_id: str):
         game = await GameState.load(session_id)
         if not game:
             logger.error(f"Game not found for session_id: {session_id}")
+            await manager.clear_loading_state(session_id)  # Clear loading state before raising error
             raise HTTPException(status_code=404, detail="Game not found")
         
         logger.info(f"Current game state: {game.dict()}")
         
         if len(game.players) < 2:
             logger.error(f"Not enough players to start game. Current players: {len(game.players)}")
+            await manager.clear_loading_state(session_id)  # Clear loading state before raising error
             raise HTTPException(status_code=400, detail="Need at least 2 players to start")
         
         # Increment round number if we're in RESULTS phase
@@ -371,21 +373,26 @@ async def start_game(session_id: str):
             game.current_round += 1
             logger.info(f"Incremented round number to: {game.current_round}")
         
-        # Generate scenario using OpenAI
-        logger.info("Generating scenario using OpenAI...")
-        title, description = await scenario_generator.generate_scenario(game.dict())
-        
-        # Generate voting options
-        logger.info("Generating voting options...")
-        options = await scenario_generator.generate_voting_options(title, description)
-        
-        # Format scenario
-        generated_scenario = {
-            "title": title,
-            "description": description,
-            "consequences": "The council's decision will have far-reaching consequences for our society.",
-            "options": [{"id": f"option{i+1}", "text": option} for i, option in enumerate(options)]
-        }
+        try:
+            # Generate scenario using OpenAI
+            logger.info("Generating scenario using OpenAI...")
+            title, description = await scenario_generator.generate_scenario(game.dict())
+            
+            # Generate voting options
+            logger.info("Generating voting options...")
+            options = await scenario_generator.generate_voting_options(title, description)
+            
+            # Format scenario
+            generated_scenario = {
+                "title": title,
+                "description": description,
+                "consequences": "The council's decision will have far-reaching consequences for our society.",
+                "options": [{"id": f"option{i+1}", "text": option} for i, option in enumerate(options)]
+            }
+        except Exception as e:
+            logger.error(f"Error generating scenario: {str(e)}")
+            await manager.clear_loading_state(session_id)  # Clear loading state before raising error
+            raise HTTPException(status_code=500, detail="Failed to generate scenario")
         
         logger.info(f"Generated scenario: {generated_scenario}")
         game.current_scenario = generated_scenario
@@ -401,11 +408,17 @@ async def start_game(session_id: str):
         }
         logger.info(f"Update data: {update_data}")
         
-        result = supabase.table("games").update(update_data).eq("session_id", session_id).execute()
-        logger.info(f"Supabase response: {result}")
-        
-        if hasattr(result, 'error') and result.error:
-            logger.error(f"Error updating game in Supabase: {result.error}")
+        try:
+            result = supabase.table("games").update(update_data).eq("session_id", session_id).execute()
+            logger.info(f"Supabase response: {result}")
+            
+            if hasattr(result, 'error') and result.error:
+                logger.error(f"Error updating game in Supabase: {result.error}")
+                await manager.clear_loading_state(session_id)  # Clear loading state before raising error
+                raise HTTPException(status_code=500, detail="Failed to update game in database")
+        except Exception as e:
+            logger.error(f"Error updating game in Supabase: {str(e)}")
+            await manager.clear_loading_state(session_id)  # Clear loading state before raising error
             raise HTTPException(status_code=500, detail="Failed to update game in database")
         
         await game.save()
@@ -421,41 +434,23 @@ async def start_game(session_id: str):
             }
         })
         
+        # Clear loading state after scenario is ready
+        await manager.clear_loading_state(session_id)
+        
         # Check if we should start the timer now
         await manager.check_and_start_timer(session_id)
-        
-        # After scenario is generated and game is started, broadcast loading state end
-        await manager.broadcast_to_session(session_id, {
-            "type": "loading_state",
-            "payload": {
-                "isLoading": False,
-                "message": ""
-            }
-        })
         
         logger.info(f"Game started successfully for session_id: {session_id}")
         logger.info(f"Current phase: {game.phase}")
         return {"message": "Game started successfully"}
     except HTTPException as he:
         # Ensure loading state is cleared even on error
-        await manager.broadcast_to_session(session_id, {
-            "type": "loading_state",
-            "payload": {
-                "isLoading": False,
-                "message": ""
-            }
-        })
+        await manager.clear_loading_state(session_id)
         logger.error(f"HTTP Exception in start_game: {he.detail}")
         raise he
     except Exception as e:
         # Ensure loading state is cleared even on error
-        await manager.broadcast_to_session(session_id, {
-            "type": "loading_state",
-            "payload": {
-                "isLoading": False,
-                "message": ""
-            }
-        })
+        await manager.clear_loading_state(session_id)
         logger.error(f"Unexpected error in start_game: {str(e)}")
         logger.error(f"Error type: {type(e)}")
         logger.error(f"Error details: {e.__dict__}")
@@ -472,7 +467,7 @@ async def update_timer(session_id: str, request: Request):
         # If starting the timer, set the end time to 60 seconds from now
         if updates.get("timer_running", False):
             # Use timezone-naive datetime for consistency
-            end_time = datetime.utcnow().replace(tzinfo=None) + timedelta(seconds=60)
+            end_time = datetime.utcnow().replace(tzinfo=None) + timedelta(seconds=90)
         else:
             end_time = None
             
@@ -553,6 +548,14 @@ async def update_game_phase(session_id: str, request: Request):
         game.phase = new_phase
         await game.save()
         
+        # Broadcast phase change to all players
+        await manager.broadcast_to_session(session_id, {
+            "type": "phase_change",
+            "payload": {
+                "phase": new_phase
+            }
+        })
+        
         return {"message": "Game phase updated successfully"}
     except Exception as e:
         logger.error(f"Error updating game phase: {str(e)}")
@@ -605,6 +608,8 @@ async def update_player_weight(session_id: str, player_id: str, new_weight: floa
 @app.post("/api/games/{session_id}/scenario/outcome")
 async def get_voting_outcome(session_id: str):
     try:
+        logger.info(f"Starting outcome generation for session {session_id}")
+        
         # Broadcast loading state to all players
         await manager.broadcast_to_session(session_id, {
             "type": "loading_state",
@@ -618,17 +623,44 @@ async def get_voting_outcome(session_id: str):
         game = await GameState.load(session_id)
         if not game:
             logger.error(f"Game not found for session {session_id}")
+            # Clear loading state before raising error
+            await manager.broadcast_to_session(session_id, {
+                "type": "loading_state",
+                "payload": {
+                    "isLoading": False,
+                    "message": ""
+                }
+            })
             raise HTTPException(status_code=404, detail="Game not found")
             
         # Get the current scenario from the game state
         current_scenario = game.current_scenario
         if not current_scenario:
             logger.error(f"No scenario available for session {session_id}")
+            # Clear loading state before raising error
+            await manager.broadcast_to_session(session_id, {
+                "type": "loading_state",
+                "payload": {
+                    "isLoading": False,
+                    "message": ""
+                }
+            })
             raise HTTPException(status_code=400, detail="No scenario available")
+        
+        logger.info(f"Current scenario state: {current_scenario}")
         
         # Check if outcome is already generated (first check)
         if "outcome" in current_scenario and current_scenario["outcome"]:
             logger.info(f"Outcome already exists for session {session_id} (initial check), returning existing.")
+            logger.info(f"Existing outcome: {current_scenario['outcome']}")
+            # Clear loading state before returning
+            await manager.broadcast_to_session(session_id, {
+                "type": "loading_state",
+                "payload": {
+                    "isLoading": False,
+                    "message": ""
+                }
+            })
             return {
                 "outcome": current_scenario["outcome"],
                 "resource_changes": current_scenario.get("resource_changes", {})
@@ -647,6 +679,14 @@ async def get_voting_outcome(session_id: str):
             game = await GameState.load(session_id)
             if not game or not game.current_scenario:
                  logger.error(f"Game or scenario disappeared while holding lock for session {session_id}")
+                 # Clear loading state before raising error
+                 await manager.broadcast_to_session(session_id, {
+                     "type": "loading_state",
+                     "payload": {
+                         "isLoading": False,
+                         "message": ""
+                     }
+                 })
                  raise HTTPException(status_code=500, detail="Game state changed unexpectedly during lock")
             current_scenario = game.current_scenario # Update local variable with latest data
             # --- End reload ---
@@ -654,6 +694,14 @@ async def get_voting_outcome(session_id: str):
             # Check again if outcome was generated while waiting for the lock (second check, now more reliable)
             if "outcome" in current_scenario and current_scenario["outcome"]:
                 logger.info(f"Outcome generated while waiting for lock for session {session_id}, returning existing.")
+                # Clear loading state before returning
+                await manager.broadcast_to_session(session_id, {
+                    "type": "loading_state",
+                    "payload": {
+                        "isLoading": False,
+                        "message": ""
+                    }
+                })
                 return {
                     "outcome": current_scenario["outcome"],
                     "resource_changes": current_scenario.get("resource_changes", {})
@@ -678,6 +726,14 @@ async def get_voting_outcome(session_id: str):
                     # No need to save here, will be saved after outcome generation
                 else:
                     logger.error(f"No voting results available for session {session_id}, round {round_key}")
+                    # Clear loading state before raising error
+                    await manager.broadcast_to_session(session_id, {
+                        "type": "loading_state",
+                        "payload": {
+                            "isLoading": False,
+                            "message": ""
+                        }
+                    })
                     raise HTTPException(status_code=400, detail="No voting results available")
                 
             # Count votes for each option
@@ -698,10 +754,7 @@ async def get_voting_outcome(session_id: str):
                     new_weight = base_weight + bonus
                     if new_weight != base_weight:
                         # Update DB
-                        supabase.table("players").update({
-                            "vote_weight": new_weight
-                        }).eq("player_id", voter_id).eq("session_id", session_id).execute()
-
+                        await update_player_weight(session_id, voter_id, new_weight)
                         # Also update local object
                         player_obj.vote_weight = new_weight
                         base_weight = new_weight
@@ -709,25 +762,19 @@ async def get_voting_outcome(session_id: str):
                 vote_counts.setdefault(vote, 0)
                 vote_counts[vote] += base_weight
 
-                
-            logger.info(f"Vote counts: {vote_counts}")
-                
             # Find the winning option
-            if not vote_counts: # Handle case where there are no votes somehow?
-                logger.error(f"No votes were cast for session {session_id}, round {round_key}. Cannot determine winner.")
-                raise HTTPException(status_code=400, detail="No votes cast, cannot determine outcome.")
             winning_option = max(vote_counts.items(), key=lambda x: x[1])[0]
-            logger.info(f"Winning option: {winning_option}")
             
-            # Generate outcome based on the scenario and winning option
+            # Generate outcome
             outcome, resource_changes = await scenario_generator.generate_voting_outcome(
                 current_scenario.get("title", ""),
                 current_scenario.get("description", ""),
-                winning_option,  # This is now guaranteed to be a string
+                current_scenario.get("options", []),
+                winning_option,
                 vote_counts
             )
             
-            # Update the game state with the outcome and resource changes
+            # Update the scenario with the outcome
             current_scenario["outcome"] = outcome
             current_scenario["resource_changes"] = resource_changes
             game.current_scenario = current_scenario # Ensure game object has updated scenario
@@ -739,7 +786,7 @@ async def get_voting_outcome(session_id: str):
             await game.save() # Save the game state with the new outcome and resource changes
             logger.info(f"Outcome and resource changes saved for session {session_id}. Releasing lock.")
             
-            # After generating outcome, broadcast loading state end
+            # Clear loading state after successful outcome generation
             await manager.broadcast_to_session(session_id, {
                 "type": "loading_state",
                 "payload": {
@@ -752,9 +799,9 @@ async def get_voting_outcome(session_id: str):
                 "outcome": outcome,
                 "resource_changes": resource_changes
             }
-        # Lock is released automatically here
     except Exception as e:
-        # Ensure loading state is cleared even on error
+        logger.error(f"Error generating voting outcome: {str(e)}")
+        # Clear loading state on error
         await manager.broadcast_to_session(session_id, {
             "type": "loading_state",
             "payload": {
@@ -762,12 +809,7 @@ async def get_voting_outcome(session_id: str):
                 "message": ""
             }
         })
-        logger.error(f"Error generating voting outcome: {str(e)}")
-        logger.error(f"Error type: {type(e)}")
-        # Log more details if possible, e.g., traceback
-        import traceback
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Error generating voting outcome: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/games/{session_id}/votes")
 async def get_vote_count(session_id: str, round: int, option: str):

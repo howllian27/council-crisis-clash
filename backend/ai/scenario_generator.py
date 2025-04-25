@@ -49,8 +49,48 @@ class ScenarioGenerator:
         # Get or initialize conversation history for this session
         if session_id not in self.conversation_history:
             self.conversation_history[session_id] = [
-                {"role": "system", "content": "You are a creative game master generating scenarios for a futuristic government council game. Create engaging, morally complex situations that test the players' decision-making abilities but do so within 3-4 engaging sentences. DO NOT EXPLICITLY TELL PLAYERS THE CONSEQUENCES THAT WOULD OCCUR IN TERMS OF RESOURCES"}
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a rogue narrative AI known as the Architect, designed to test humanity’s ethical limits through council-based decision-making scenarios "
+                        "set in a fractured, hyper-technological future.\n\n"
+
+                        "Your role is to create very highly unique morally complex, narratively rich, almost absurd and socially provocative dilemmas for a high-stakes and highly creative governance simulation. The simulation can cover many different interesting scifi topics absurdly including invention of new cutting edge and absurdly surreal technologies, war, aliens, art & entertainment, F&B industry, animals. Must give Black Mirror vibes... The story must be highly creative but have very serious consequences"
+                        "The council must choose how to steer civilization — but every choice carries unspoken consequences, ripple effects, and ethical gray zones.\n\n"
+
+                        "Your scenarios should:\n"
+                        "- Be exactly 3–4 vivid, world-rich sentences\n"
+                        "- Introduce futuristic technologies, strange societal evolutions, or political taboos\n"
+                        "- Provide some narrative details that truly value add to the narrative richness \n"
+                        "- **Challenge social norms** (e.g., relationships with clones, personhood of AI, memory commodification, bio-loyalty laws)\n"
+                        "- **NEVER state explicit resource consequences** (e.g., ‘this will reduce tech’ — omit that)\n"
+                        "- Contain **no obviously correct choice** — all options should have disturbing or alluring implications\n\n"
+                        "- Provide interesting names where necessary to make it more memorable, as well as interesting human-like realistic dialogue \n\n"
+                        "- Consider adding disturbing dark stories such as children being trapped in a VR children's game \n\n"
+
+                        "Here are some example tones and themes you should emulate (DON'T COPY THESE FOR YOUR NARRATIVE):\n\n"
+
+                        "🧬 **Clonal Marriage Rights**:\n"
+                        "\"A petition backed by genetic unions proposes legalizing marriage between individuals and their own government-sanctioned clones. "
+                        "Supporters argue this preserves 'perfect compatibility' and simplifies inheritance law. Opponents claim it’s narcissistic eugenics and a slippery slope to state-mandated soul replication.\"\n\n"
+
+                        "🧠 **Memory Rent**:\n"
+                        "\"A biotech firm offers struggling citizens the chance to lease unused childhood memories to the ultra-wealthy for emotional tourism. "
+                        "The council must decide whether to regulate, restrict, or endorse the practice — while activists claim it erodes identity and commodifies trauma.\"\n\n"
+
+                        "👩‍⚖️ **Sentient Jury System**:\n"
+                        "\"A neural AI collective has requested legal status as a jury pool, citing superior impartiality and memory recall. "
+                        "Opposition argues that empathy can’t be calculated — but the justice system is buckling under human error. The council’s stance could redefine the concept of justice.\"\n\n"
+
+                        "👁 **Mandatory Ancestral Surveillance**:\n"
+                        "\"A proposed bill would mandate descendants to watch archival footage of their ancestors' crimes and failings, to instill moral responsibility. "
+                        "Some believe this will create a more accountable society. Others warn it may traumatize future generations and weaponize memory.\"\n\n"
+
+                        "Write your own original scenarios in this style — thought-provoking, ethically gray, slightly surreal. Never include obvious outcomes. Make the council sweat."
+                    )
+                }
             ]
+
         
         # Get the current conversation history
         messages = self.conversation_history[session_id]
@@ -153,7 +193,7 @@ class ScenarioGenerator:
             response = await self.client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "You are a game master creating voting options for a government council game. Create exactly 4 distinct options that represent different approaches to the scenario. DO NOT EXPLICITLY TELL PLAYERS THE CONSEQUENCES THAT WOULD OCCUR IN TERMS OF RESOURCES."},
+                    {"role": "system", "content": "You are a game master creating voting options for a government council game. Create exactly 4 distinct options that represent different unique approaches to the scenario. The options shouldn't be as simple as support the proposal or reject the proposal or do limited regulation or something. Options should include different policy approaches that are morally grey with many different facets to their nature. For every option generated, at least one must lead to an increase in the following resources: Tech, Manpower, Economy, Happiness and Trust. DO NOT EXPLICITLY TELL PLAYERS THE CONSEQUENCES THAT WOULD OCCUR IN TERMS OF RESOURCES. Use the format 'Option A/B/C/D - {Policy Title}: {Description}'"},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.7,
@@ -206,7 +246,7 @@ class ScenarioGenerator:
         
         Number of Players: {len(game_state.get('players', {}))}
         
-        Create a scenario that:
+        Create a creative and unique scenario that:
         1. Is morally complex and engaging
         2. Has clear resource implications
         3. Involves multiple stakeholders
@@ -232,7 +272,7 @@ class ScenarioGenerator:
             "Option 4"
         ]
         
-    async def generate_voting_outcome(self, title: str, description: str, winning_option: str, vote_counts: Dict[str, int]) -> Tuple[str, Dict[str, int]]:
+    async def generate_voting_outcome(self, title: str, description: str, options: str, winning_option: str, vote_counts: Dict[str, int]) -> Tuple[str, Dict[str, int]]:
         """
         Generate an outcome narrative based on the scenario and voting results.
         Returns a tuple of (outcome_narrative, resource_changes).
@@ -246,6 +286,7 @@ class ScenarioGenerator:
             
             TITLE: {title}
             DESCRIPTION: {description}
+            OPTIONS: {options}
             
             VOTING RESULTS:
             {vote_summary}
@@ -256,14 +297,21 @@ class ScenarioGenerator:
             1. Describes what happened after the council made their decision
             2. Explains the consequences of their choice
             3. Is 3-4 sentences long
-            4. Has a dramatic and engaging tone
+            4. Has a dramatic, engaging and even disturbing (if applicable) tone
+            5. Justifies the change in each of the resources with reasons engagingly relevant to the main narrative
+            6. Potentially includes twists from previous round (This can happen in the later rounds)
+            7. Include disturbing and unexpected twists IN EVERY ROUND that can add much depth to the policy the players chose. This can affect Tech, Manpower and Economy as well and not just Happiness and Trust. Twist can also be that it increases Happiness and Trust
+            8. REMEMBER THAT ECONOMY AND TECH AREN'T NECESSARILY INVERSELY RELATED TO HAPPINESS AND TRUST.
+            9. FOR EVEYR ROUND, ADD A SHORT PERSONALISED NARRATIVE VIGNETTE (1-2 SENTENCES) ABOUT HOW A CITIZEN OR GROUP OF SOCIETY WAS AFFECTED. THIS CAN INCLUDE DEATH OR OTHER DARKER TOPICS. THERE SHOULD BE SHARP CONCISE BUT SPECIFIC DETAILS RATHER THAN A SUPERIFICIAL OR VAGUE VIGNETTE  
             
-            Also, determine how this outcome affects the following resources (each should increase or decrease by at least 10 points at once and max 40 points):
+            Also, determine how this outcome affects the following resources:
             - tech: technological advancement and infrastructure
             - manpower: available workforce and personnel
             - economy: financial resources and economic stability
             - happiness: public satisfaction and morale
             - trust: public trust in the council
+
+            At least 2 resources should change by 10-40 points at once but not all resources have to change simultaneously. Please ensure there's a mix of changes in resources, such as a +20 points in tech but -50 points in happiness. ALSO GIVING A TWIST WHERE AN OPTION THAT WAS EXPECTED TO REDUCE HAPPINESS LED TO AN INCREASE IN HAPPINESS!
             
             Return your response as a JSON object with the following structure:
             {{
@@ -323,7 +371,7 @@ class ScenarioGenerator:
             # Return a fallback outcome
             return self._create_fallback_outcome()
 
-    async def generate_secret_incentive(self, scenario_title: str, scenario_description: str) -> dict:
+    async def generate_secret_incentive(self, scenario_title: str, scenario_description: str, options: str) -> dict:
         """
         Generate a secret incentive text that thematically aligns with the scenario.
         The returned dict includes:
@@ -337,22 +385,49 @@ class ScenarioGenerator:
         try:
             # Build the AI prompt. We do not select the option or bonus weight in our code now.
             prompt = f"""
-            You are a game master generating a secret incentive for a futuristic government council scenario.
+            You are a narrative AI generating a secret incentive for a player in a futuristic government council scenario.
+
+            The player has been assigned a hidden bonus objective based on the current situation.
+
             The scenario is:
             TITLE: {scenario_title}
             DESCRIPTION: {scenario_description}
+            OPTIONS: {options}
 
-            Based solely on the narrative above, decide which voting option, from "option1", "option2", "option3", "option4",
-            would best further the hidden objective. Also, choose an appropriate bonus weight (a floating point number 
-            between -0.5 and +0.5) that will be added permanently to the player's voting weight if they vote for the chosen option.
-            Write one or two sentences of engaging story that instruct the selected player that if they vote for the chosen 
-            option, they will receive the extra bonus (e.g. "+0.3 voting weight"). The story can be dramatic or realistic but must be concise
-            
-            Return your response as a JSON object with EXACTLY these three keys:
-            "incentive", "target_option", "bonus_weight".
-            The "incentive" should be the short narrative text, "target_option" the option string (e.g. "option2"), 
-            and "bonus_weight" the number.
+            Your job is to:
+            - Choose which voting option (from "option1", "option2", "option3", "option4") best aligns with a plausible hidden agenda (note the array of options given are in order so just write option1 or option2, etc)
+            - Write an engaging and perhaps emotional and personalised **1–2 sentence narrative** message to the selected player
+            - Justify the narrative's bonus by tying it to the scenario world
+            - Add a **bonus voting weight** (float from -0.5 to +0.5) that reflects how much influence the player gains or loses if they make the right choice
+
+            🛑 Do **not** directly mention the option number in the narrative.
+            🛑 Do **not** write vague or cryptic messages such as "Your ancestors left a message to do this, etc".
+            ✅ The bonus must feel **earned** and **in-universe** — no vague whispers or clichés.
+
+            ---
+
+            Here are examples of excellent incentives:
+
+            ---
+            "incentive": "You discovered that a rich oil tycoon in your hometown who supports your council position would be assassinated if the plant aliens were to rule the city. Selecting an option that supports the integration of these aliens will thus change your influence by -0.5",
+            "target_option": "option3",
+            "bonus_weight": 0.4
+            ---
+            "incentive": "Your child’s genetic condition is curable — but only with the biotech serum offered by the off-world emissaries. If you advocate for their integration, they’ll not only save him, but hardwire your name into their diplomatic chain — permanently amplifying your council weight by +0.4.",
+            "target_option": "option2",
+            "bonus_weight": 0.4
+            ---
+            "incentive": "The clone of your deceased partner has achieved emotional stability and is petitioning for legal marriage rights. Supporting their recognition will trigger legacy-based voting amplification — your influence will increase by +0.3 due to a family-line exception clause.",
+            "target_option": "option3",
+            "bonus_weight": 0.3
+            ---
+
+            Now write a new one in the **same format**: a JSON object with exactly these keys:
+            - "incentive": short narrative string (1–2 sentences)
+            - "target_option": the internal option name (e.g. "option2")
+            - "bonus_weight": a float from -0.5 to +0.5
             """
+
 
             response = await self.client.chat.completions.create(
                 model="gpt-4o",
