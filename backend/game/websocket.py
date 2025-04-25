@@ -86,7 +86,7 @@ class GameWebSocketManager:
         self.timer_start_times[session_id] = datetime.utcnow()
         
         # Set the timer duration to 60 seconds (1 minute)
-        self.timer_durations[session_id] = 120
+        self.timer_durations[session_id] = 60
         
         # Cancel any existing timer task
         if session_id in self.timer_tasks and not self.timer_tasks[session_id].done():
@@ -98,7 +98,7 @@ class GameWebSocketManager:
         logger.info(f"Created new timer task for session {session_id}")
         
         # Broadcast timer started message
-        await self.broadcast_to_session(session_id, {"type": "timer_started", "duration": 120})
+        await self.broadcast_to_session(session_id, {"type": "timer_started", "duration": 60})
         logger.info(f"Broadcasted timer started message for session {session_id}")
 
     async def check_timer(self, session_id: str):
@@ -108,7 +108,7 @@ class GameWebSocketManager:
         try:
             # Get the start time and duration
             start_time = self.timer_start_times.get(session_id)
-            duration = self.timer_durations.get(session_id, 120)  # Default to 60 seconds
+            duration = self.timer_durations.get(session_id, 60)  # Default to 60 seconds
             
             if not start_time:
                 logger.info(f"Timer start time not found for session {session_id}, stopping timer check")

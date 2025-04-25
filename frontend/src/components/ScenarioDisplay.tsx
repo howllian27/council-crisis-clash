@@ -25,7 +25,7 @@ const ScenarioDisplay: React.FC<ScenarioDisplayProps> = ({
   options,
   className,
   onVote,
-  timeLimit = 120,
+  timeLimit = 60,
   hasVoted = false,
   roundStartTime,
 }) => {

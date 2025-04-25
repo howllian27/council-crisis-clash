@@ -846,9 +846,7 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
       console.log("Starting next round...");
       // Call the backend API to start the next round
       const response = await fetch(
-        `${import.meta.env.VITE_BACKEND_URL}/api/games/${
-          currentSession.session_id
-        }/start`,
+        `http://localhost:8000/api/games/${currentSession.session_id}/start`,
         {
           method: "POST",
           headers: {
@@ -896,7 +894,7 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
 
         // Connect to scenario WebSocket
         const ws = new WebSocket(
-          `wss://45d3-185-25-195-104.ngrok-free.app/ws/${currentSession.session_id}/scenario`
+          `ws://localhost:8000/ws/${currentSession.session_id}/scenario`
         );
 
         ws.onmessage = (event) => {
@@ -946,9 +944,7 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
 
     try {
       const response = await fetch(
-        `${import.meta.env.VITE_BACKEND_URL}/api/games/${
-          currentSession.session_id
-        }/scenario/options`,
+        `http://localhost:8000/api/games/${currentSession.session_id}/scenario/options`,
         {
           method: "POST",
           headers: {
@@ -981,7 +977,7 @@ export const MultiplayerProvider: React.FC<{ children: React.ReactNode }> = ({
   // Initialize WebSocket connection
   useEffect(() => {
     if (currentSession) {
-      const ws = new WebSocket("wss://45d3-185-25-195-104.ngrok-free.app/ws");
+      const ws = new WebSocket("ws://localhost:8000/ws");
       setScenarioSocket(ws);
 
       ws.onopen = () => {

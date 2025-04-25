@@ -53,8 +53,8 @@ docker-compose up --build
 The application will be available at:
 
 - Frontend: http://localhost:3000
-- Backend API: ${import.meta.env.VITE_BACKEND_URL}
-- API Documentation: ${import.meta.env.VITE_BACKEND_URL}/docs
+- Backend API: http://localhost:8000
+- API Documentation: http://localhost:8000/docs
 
 ## Local Development
 
@@ -109,7 +109,7 @@ project-oversight/
 
 ## API Documentation
 
-The API documentation is available at ${import.meta.env.VITE_BACKEND_URL}/docs when running the backend server.
+The API documentation is available at http://localhost:8000/docs when running the backend server.
 
 ## Contributing
 
