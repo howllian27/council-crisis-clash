@@ -79,6 +79,7 @@ const Game = () => {
   );
   const [isGameOver, setIsGameOver] = useState(false);
   const [gameOverMessage, setGameOverMessage] = useState("");
+  const [showGameOverOverlay, setShowGameOverOverlay] = useState(false);
 
   // Use either the current session or debug session
   const session = currentSession || debugSession;
@@ -783,69 +784,24 @@ const Game = () => {
       if (depletedResources.length > 0) {
         setIsGameOver(true);
         setGameOverMessage(
-          `Game Over! The following resources have been depleted: ${depletedResources.join(
-            ", "
-          )}`
+          `Game Over! The following resources have been depleted: ${depletedResources.join(", ")}`
         );
+        setShowGameOverOverlay(false); // Reset overlay in case of quick re-entry
       }
     }
   }, [currentSession?.resources]);
 
-  if (isGameOver) {
-    return (
-      <div className="min-h-screen w-full bg-gradient-to-b from-black to-gray-900 p-4 pb-16">
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
-          <div className="bg-gray-800 p-8 rounded-lg max-w-md w-full text-center">
-            <h2 className="text-2xl font-bold text-red-500 mb-4">Game Over</h2>
-            <p className="text-white mb-6">{gameOverMessage}</p>
-            <div className="space-y-4">
-              <div className="glass-panel p-4">
-                <h3 className="text-lg font-semibold text-neon-pink mb-2">
-                  Final Resources
-                </h3>
-                <div className="grid grid-cols-2 gap-2">
-                  {session?.resources.map((resource) => (
-                    <div
-                      key={resource.type}
-                      className="flex items-center justify-between"
-                    >
-                      <span className="text-gray-300 capitalize">
-                        {resource.type}:
-                      </span>
-                      <span
-                        className={cn(
-                          "font-bold",
-                          resource.value <= 0
-                            ? "text-red-500"
-                            : "text-green-500"
-                        )}
-                      >
-                        {resource.value}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="glass-panel p-4">
-                <h3 className="text-lg font-semibold text-neon-pink mb-2">
-                  Final Round
-                </h3>
-                <p className="text-white">Round {session?.currentRound}</p>
-              </div>
-            </div>
-            <div className="mt-6">
-              <button
-                onClick={handleLeave}
-                className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded"
-              >
-                Leave Game
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // Show the Game Over overlay 10s after outcome is shown (if game over has occurred)
+  useEffect(() => {
+    if (
+      isGameOver &&
+      outcome && // outcome is non-empty (narrative shown)
+      currentGamePhase === "results"
+    ) {
+      const timer = setTimeout(() => setShowGameOverOverlay(true), 10000);
+      return () => clearTimeout(timer);
+    }
+  }, [isGameOver, outcome, currentGamePhase]);
 
   if (!session) {
     return <div>Error: No active session</div>;
@@ -916,7 +872,60 @@ const Game = () => {
   };
 
   return (
+    
     <div className="min-h-screen w-full bg-gradient-to-b from-black to-gray-900 p-4 pb-16">
+      {showGameOverOverlay && (
+      <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50">
+        <div className="bg-gray-800 p-8 rounded-lg max-w-md w-full text-center border-4 border-red-500 shadow-xl">
+          <h2 className="text-3xl font-bold text-red-500 mb-4 neon-glow">Game Over</h2>
+          <p className="text-white mb-6">{gameOverMessage}</p>
+          <div className="space-y-4">
+            <div className="glass-panel p-4">
+              <h3 className="text-lg font-semibold text-neon-pink mb-2">
+                Final Resources
+              </h3>
+              <div className="grid grid-cols-2 gap-2">
+                {session?.resources.map((resource) => (
+                  <div
+                    key={resource.type}
+                    className="flex items-center justify-between"
+                  >
+                    <span className="text-gray-300 capitalize">
+                      {resource.type}:
+                    </span>
+                    <span
+                      className={cn(
+                        "font-bold",
+                        resource.value <= 0
+                          ? "text-red-500"
+                          : "text-green-500"
+                      )}
+                    >
+                      {resource.value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="glass-panel p-4">
+              <h3 className="text-lg font-semibold text-neon-pink mb-2">
+                Final Round
+              </h3>
+              <p className="text-white">Round {session?.currentRound}</p>
+            </div>
+          </div>
+          <div className="mt-6">
+            <button
+              onClick={handleLeave}
+              className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded"
+            >
+              Leave Game
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
       {isLoading && <LoadingOverlay message={loadingMessage} />}
       <Timer
         endTime={currentSession?.timer_end_time || null}

@@ -6,11 +6,11 @@ interface TimerProps {
 }
 
 const Timer: React.FC<TimerProps> = ({ endTime, isRunning }) => {
-  const [timeLeft, setTimeLeft] = useState<string>("");
+  const [isTimeUp, setIsTimeUp] = useState<boolean>(false);
 
   useEffect(() => {
     if (!isRunning || !endTime) {
-      setTimeLeft("");
+      setIsTimeUp(false);
       return;
     }
 
@@ -20,12 +20,12 @@ const Timer: React.FC<TimerProps> = ({ endTime, isRunning }) => {
       const difference = end - now;
 
       if (difference <= 0) {
-        setTimeLeft("Time's up!");
+        setIsTimeUp(true);
         return;
       }
 
-      const seconds = Math.floor((difference / 1000) % 60);
-      setTimeLeft(`${seconds}s`);
+      setIsTimeUp(false);
+      // No countdown display
     };
 
     calculateTimeLeft();
@@ -34,15 +34,20 @@ const Timer: React.FC<TimerProps> = ({ endTime, isRunning }) => {
     return () => clearInterval(interval);
   }, [endTime, isRunning]);
 
-  if (!isRunning || !timeLeft) {
+  if (!isRunning) {
     return null;
   }
 
-  return (
-    <div className="fixed top-4 right-4 bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg">
-      <div className="text-lg font-bold">{timeLeft}</div>
-    </div>
-  );
+  if (isTimeUp) {
+    return (
+      <div className="fixed top-4 right-4 bg-black text-neon-red px-4 py-2 rounded-lg shadow-lg border-2 border-neon-red font-bold text-lg">
+        Time's Up!
+      </div>
+    );
+  }
+
+  // Hide countdown during countdown phase
+  return null;
 };
 
 export default Timer;
