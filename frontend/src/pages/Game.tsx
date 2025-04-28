@@ -77,6 +77,8 @@ const Game = () => {
   const [previousGamePhase, setPreviousGamePhase] = useState<GamePhase | null>(
     null
   );
+  const [isGameOver, setIsGameOver] = useState(false);
+  const [gameOverMessage, setGameOverMessage] = useState("");
 
   // Use either the current session or debug session
   const session = currentSession || debugSession;
@@ -102,9 +104,23 @@ const Game = () => {
   useEffect(() => {
     const generateIncentive = async () => {
       try {
-        // Only run if the current player is the host.
-        if (currentPlayer?.id !== session?.host_id) return;
+        // Only run if the current player is the host and we're in scenario phase
+        if (
+          currentPlayer?.id !== session?.host_id ||
+          currentGamePhase !== "scenario"
+        )
+          return;
 
+        // Don't regenerate if we already have an incentive for this round
+        if (session.currentRound === fetchedRound) {
+          console.log("Already generated incentive for this round");
+          return;
+        }
+
+        console.log(
+          "Host generating secret incentive for round:",
+          session.currentRound
+        );
         const response = await fetch(
           `http://localhost:8000/api/games/${session.session_id}/secret_incentive?round=${session.currentRound}`,
           {
@@ -120,12 +136,12 @@ const Game = () => {
         }
         const data: IncentiveData = await response.json();
         console.log("Host generated secret incentive:", data);
-        // Optionally, update local state immediately or let the GET polling do its job.
       } catch (error) {
         console.error("Error generating secret incentive:", error);
       }
     };
 
+    // Generate incentive at the start of scenario phase
     if (currentGamePhase === "scenario") {
       generateIncentive();
     }
@@ -134,6 +150,7 @@ const Game = () => {
     session?.currentRound,
     currentGamePhase,
     currentPlayer,
+    fetchedRound,
   ]);
 
   useEffect(() => {
@@ -151,13 +168,14 @@ const Game = () => {
         currentGamePhase !== "scenario"
       ) {
         console.log("Skipping poll - missing required data");
-        setSelectedPlayerId(null);
-        setIncentiveText("");
-        return;
+        return; // Don't clear the state here, only when phase changes
       }
 
-      // Only poll if we haven't already fetched for this round.
-      if (session.currentRound === fetchedRound) return;
+      // Only poll if we haven't already fetched for this round
+      if (session.currentRound === fetchedRound) {
+        console.log("Already fetched incentive for this round");
+        return;
+      }
 
       try {
         setIsIncentiveLoading(true);
@@ -189,27 +207,21 @@ const Game = () => {
         if (incentive.player_id && incentive.text) {
           setSelectedPlayerId(incentive.player_id);
           setIncentiveText(incentive.text);
+          setFetchedRound(session.currentRound);
           console.log("Updated incentive state:", {
             selectedPlayerId: incentive.player_id,
             incentiveText: incentive.text,
+            fetchedRound: session.currentRound,
           });
-        } else {
-          console.log(
-            "No secret incentive available yet; leaving state unchanged."
-          );
-          setSelectedPlayerId(null);
-          setIncentiveText("");
         }
-        setFetchedRound(session.currentRound);
       } catch (error) {
         console.error("Error polling for secret incentive:", error);
-        setSelectedPlayerId(null);
-        setIncentiveText("");
       } finally {
         setIsIncentiveLoading(false);
       }
     };
 
+    // Start polling when entering scenario phase
     if (currentGamePhase === "scenario") {
       pollForSecretIncentive();
     }
@@ -221,11 +233,12 @@ const Game = () => {
     fetchedRound,
   ]);
 
-  // Clear selection in results phase
+  // Clear incentive state only when phase changes to results
   useEffect(() => {
     if (currentGamePhase === "results") {
       console.log("Clearing secret incentive selection in results phase");
       setSelectedPlayerId(null);
+      setIncentiveText("");
       setIsIncentiveLoading(false);
     }
   }, [currentGamePhase]);
@@ -328,33 +341,26 @@ const Game = () => {
 
   // Fetch outcome when phase changes to results
   useEffect(() => {
-    if (currentGamePhase === "results" && session?.session_id) {
-      // Check if the outcome is already in the session
-      if (session.currentScenario?.outcome) {
-        setOutcome(session.currentScenario.outcome);
-        return;
-      }
-
-      // Call the backend API to generate the outcome
-      fetch(
-        `http://localhost:8000/api/games/${session.session_id}/scenario/outcome`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        }
-      )
-        .then((response) => {
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+    let ignore = false;
+    let retries = 0;
+    const maxRetries = 3;
+    const retryDelay = 1500; // ms
+  
+    async function fetchOutcome() {
+      if (!session?.session_id) return;
+      try {
+        const response = await fetch(
+          `http://localhost:8000/api/games/${session.session_id}/scenario/outcome`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
           }
-          return response.json();
-        })
-        .then((data) => {
+        );
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const data = await response.json();
+        if (!ignore) {
           if (data.outcome) {
             setOutcome(data.outcome);
-            // Update the session with the new outcome
             setCurrentSession((prev) => {
               if (!prev) return prev;
               return {
@@ -365,21 +371,49 @@ const Game = () => {
                 },
               };
             });
+          } else {
+            // If no outcome, try again if retries left
+            if (retries < maxRetries) {
+              retries++;
+              setTimeout(fetchOutcome, retryDelay);
+            } else {
+              setOutcome(
+                "The council's decision had significant consequences, but the details are still being processed."
+              );
+            }
           }
-        })
-        .catch((error) => {
-          console.error("Error fetching outcome:", error);
+        }
+      } catch (error) {
+        if (!ignore && retries < maxRetries) {
+          retries++;
+          setTimeout(fetchOutcome, retryDelay);
+        } else if (!ignore) {
           setOutcome(
             "The council's decision had significant consequences, but the details are still being processed."
           );
-        });
+        }
+      }
     }
+  
+    if (currentGamePhase === "results" && session?.session_id) {
+      // If the outcome is already in the session, use it
+      if (session.currentScenario?.outcome) {
+        setOutcome(session.currentScenario.outcome);
+      } else {
+        setOutcome(""); // clear previous outcome
+        fetchOutcome();
+      }
+    }
+  
+    return () => {
+      ignore = true;
+    };
   }, [
     currentGamePhase,
     session?.session_id,
     session?.currentScenario?.outcome,
     setCurrentSession,
-  ]);
+  ]);  
 
   // Add a useEffect to fetch the game state directly when the component mounts
   useEffect(() => {
@@ -550,44 +584,63 @@ const Game = () => {
     currentGamePhase,
   ]);
 
-  // Handle phase transitions
+  // Standardized loading state management
   useEffect(() => {
-    if (gamePhase === "scenario" && previousGamePhase === "results") {
-      setIsLoading(true);
-      setIsPhaseTransition(true);
-      setLoadingMessage("The council session will now commence");
-    } else if (gamePhase === "outcome" && currentSession?.current_outcome) {
-      setIsLoading(false);
-      setIsPhaseTransition(false);
-    }
-    setPreviousGamePhase(gamePhase as GamePhase);
-  }, [gamePhase, currentSession?.current_outcome]);
+    const handleLoadingState = () => {
+      // Clear loading state only when we have both the scenario and we're in the correct phase
+      if (session?.currentScenario && gamePhase === "scenario") {
+        setIsLoading(false);
+        setLoadingMessage("");
+        setIsPhaseTransition(false);
+        return;
+      }
 
-  // Clear loading state when component unmounts or when phase changes to scenario
-  useEffect(() => {
-    if (currentGamePhase === "scenario" && session?.currentScenario) {
-      setIsLoading(false);
-      setLoadingMessage("");
-      setIsStartButtonDisabled(false);
-      setIsPhaseTransition(false);
-    }
-  }, [
-    currentGamePhase,
-    session?.currentScenario,
-    setIsLoading,
-    setLoadingMessage,
-  ]);
+      // Set loading state for phase transitions
+      if (gamePhase === "scenario" && previousGamePhase === "results") {
+        setIsLoading(true);
+        setIsPhaseTransition(true);
+        setLoadingMessage("The council session will now commence");
+      } else if (gamePhase === "outcome") {
+        setIsLoading(false);
+        setLoadingMessage("");
+        setIsPhaseTransition(false);
+      }
+    };
+
+    handleLoadingState();
+    setPreviousGamePhase(gamePhase as GamePhase);
+  }, [gamePhase, session?.currentScenario]);
 
   // Handle next round with loading state
   const handleNextRound = async () => {
     if (!currentSession?.session_id) return;
-
+  
     try {
       // Set loading state before starting next round
       setIsLoading(true);
-      setLoadingMessage("The council session will now commence");
+      setIsPhaseTransition(true);
+      setLoadingMessage("Stand By for New Council Motion...");
+  
+      // Broadcast loading state to all players
+      await fetch(`http://localhost:8000/api/games/${currentSession.session_id}/broadcast`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          type: 'loading_state',
+          payload: {
+            isLoading: true,
+            isPhaseTransition: true,
+            message: "Stand By for New Council Motion...",
+            phase: "scenario" // Add a temporary phase to ensure all clients show loading
+          }
+        })
+      });
+  
       // Clear the current outcome before starting next round
       setOutcome("");
+  
       // Call the backend to start the next round
       await nextRound();
     } catch (error) {
@@ -595,6 +648,7 @@ const Game = () => {
       // Clear loading state on error
       setIsLoading(false);
       setLoadingMessage("");
+      setIsPhaseTransition(false);
     }
   };
 
@@ -623,26 +677,35 @@ const Game = () => {
             currentRound: data.payload.current_round,
           };
         });
-        // Clear loading state after scenario is received
-        setIsLoading(false);
-        setLoadingMessage("");
+
+        // Only clear loading state if we're in the scenario phase
+        if (data.payload.phase === "scenario") {
+          setIsLoading(false);
+          setLoadingMessage("");
+          setIsPhaseTransition(false);
+        }
+
         // Re-enable the start button after a delay
         const timeout = setTimeout(() => {
           setIsStartButtonDisabled(false);
-        }, 2000); // 2 second delay before re-enabling
+        }, 2000);
         setStartButtonTimeout(timeout);
-        // Clear phase transition state
-        setIsPhaseTransition(false);
       } else if (data.type === "loading_state") {
-        // Update loading state
+        // Update loading state for all clients
         setIsLoading(data.payload.isLoading);
-        if (data.payload.message) {
-          setLoadingMessage(data.payload.message);
+        setLoadingMessage(data.payload.message || "");
+        setIsPhaseTransition(data.payload.isPhaseTransition || false);
+        
+        // If we're in a transition phase, clear the current scenario to force the loading screen
+        if (data.payload.phase === "scenario") {
+          setCurrentSession((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              currentScenario: null, // Clear scenario to trigger loading overlay
+            };
+          });
         }
-        // Set phase transition state based on the message
-        setIsPhaseTransition(
-          data.payload.message === "The council session will now commence"
-        );
       } else if (data.type === "phase_change") {
         // Handle phase changes
         if (
@@ -654,6 +717,13 @@ const Game = () => {
           setLoadingMessage("The council session will now commence");
         }
         setPreviousGamePhase(data.payload.phase as GamePhase);
+      } else if (data.type === "secret_incentive") {
+        // Handle secret incentive updates
+        if (data.payload.player_id === playerId) {
+          setSelectedPlayerId(data.payload.player_id);
+          setIncentiveText(data.payload.text);
+          setIsIncentiveLoading(false);
+        }
       }
     };
 
@@ -686,6 +756,7 @@ const Game = () => {
     setCurrentSession,
     setIsLoading,
     setLoadingMessage,
+    previousGamePhase,
   ]);
 
   // Update resources when outcome changes
@@ -702,13 +773,90 @@ const Game = () => {
     }
   }, [currentSession?.current_outcome?.resource_changes]);
 
+  // Check for game over condition when resources change
+  useEffect(() => {
+    if (currentSession?.resources) {
+      const depletedResources = currentSession.resources
+        .filter((resource) => resource.value <= 0)
+        .map((resource) => resource.type);
+
+      if (depletedResources.length > 0) {
+        setIsGameOver(true);
+        setGameOverMessage(
+          `Game Over! The following resources have been depleted: ${depletedResources.join(
+            ", "
+          )}`
+        );
+      }
+    }
+  }, [currentSession?.resources]);
+
+  if (isGameOver) {
+    return (
+      <div className="min-h-screen w-full bg-gradient-to-b from-black to-gray-900 p-4 pb-16">
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+          <div className="bg-gray-800 p-8 rounded-lg max-w-md w-full text-center">
+            <h2 className="text-2xl font-bold text-red-500 mb-4">Game Over</h2>
+            <p className="text-white mb-6">{gameOverMessage}</p>
+            <div className="space-y-4">
+              <div className="glass-panel p-4">
+                <h3 className="text-lg font-semibold text-neon-pink mb-2">
+                  Final Resources
+                </h3>
+                <div className="grid grid-cols-2 gap-2">
+                  {session?.resources.map((resource) => (
+                    <div
+                      key={resource.type}
+                      className="flex items-center justify-between"
+                    >
+                      <span className="text-gray-300 capitalize">
+                        {resource.type}:
+                      </span>
+                      <span
+                        className={cn(
+                          "font-bold",
+                          resource.value <= 0
+                            ? "text-red-500"
+                            : "text-green-500"
+                        )}
+                      >
+                        {resource.value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="glass-panel p-4">
+                <h3 className="text-lg font-semibold text-neon-pink mb-2">
+                  Final Round
+                </h3>
+                <p className="text-white">Round {session?.currentRound}</p>
+              </div>
+            </div>
+            <div className="mt-6">
+              <button
+                onClick={handleLeave}
+                className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded"
+              >
+                Leave Game
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!session) {
     return <div>Error: No active session</div>;
   }
 
   const currentScenario = session.currentScenario;
-  if (!currentScenario && currentGamePhase === "scenario") {
-    // Show loading overlay instead of error message
+  if (
+    (currentGamePhase === "scenario" && !currentScenario) ||
+    (isPhaseTransition && currentGamePhase !== "results")
+  ) {
+    // Only show the loading overlay during scenario phase or phase transitions NOT in results
     return (
       <div className="min-h-screen w-full bg-gradient-to-b from-black to-gray-900 p-4 pb-16">
         <LoadingOverlay
@@ -721,6 +869,7 @@ const Game = () => {
       </div>
     );
   }
+  
 
   // Handle vote submission
   const handleVote = (optionId: string) => {

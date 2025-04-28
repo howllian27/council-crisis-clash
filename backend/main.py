@@ -934,11 +934,13 @@ async def generate_secret_incentive(session_id: str, round: int):
             current_scenario = game.current_scenario or {}
             scenario_title = current_scenario.get("title", "Unknown Crisis")
             scenario_description = current_scenario.get("description", "")
+            scenario_options = current_scenario.get("options", "")
             
             # Use your scenario generator to generate incentive text.
             incentive_response = await scenario_generator.generate_secret_incentive(
                 scenario_title,
-                scenario_description
+                scenario_description,
+                scenario_options
             )
             
             new_incentive = {
