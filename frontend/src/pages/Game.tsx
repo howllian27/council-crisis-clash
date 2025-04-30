@@ -1095,12 +1095,14 @@ const Game = () => {
                     <p className="text-gray-300">{outcome}</p>
                   </div>
                 )}
-
-                <div className="flex justify-end">
-                  <Button onClick={handleNextRound} glow>
-                    Next Round
-                  </Button>
-                </div>
+                
+                {currentPlayer?.id === session.host_id && (
+                  <div className="flex justify-end">
+                    <Button onClick={handleNextRound} glow>
+                      Next Round
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </div>
