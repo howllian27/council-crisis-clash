@@ -298,11 +298,12 @@ class ScenarioGenerator:
             2. Explains the consequences of their choice
             3. Is 3-4 sentences long
             4. Has a dramatic, engaging and even disturbing (if applicable) tone
-            5. Justifies the change in each of the resources with reasons engagingly relevant to the main narrative
+            5. Justifies the change in each of the resources with reasons engagingly relevant to the main narrative, including manpower
             6. Potentially includes twists from previous round (This can happen in the later rounds)
             7. Include disturbing and unexpected twists IN EVERY ROUND that can add much depth to the policy the players chose. This can affect Tech, Manpower and Economy as well and not just Happiness and Trust. Twist can also be that it increases Happiness and Trust
             8. REMEMBER THAT ECONOMY AND TECH AREN'T NECESSARILY INVERSELY RELATED TO HAPPINESS AND TRUST.
-            9. FOR EVEYR ROUND, ADD A SHORT PERSONALISED NARRATIVE VIGNETTE (1-2 SENTENCES) ABOUT HOW A CITIZEN OR GROUP OF SOCIETY WAS AFFECTED. THIS CAN INCLUDE DEATH OR OTHER DARKER TOPICS. THERE SHOULD BE SHARP CONCISE BUT SPECIFIC DETAILS RATHER THAN A SUPERIFICIAL OR VAGUE VIGNETTE  
+            9. FOR EVERY ROUND, ADD A SHORT PERSONALISED NARRATIVE VIGNETTE (2-3 SENTENCES) ABOUT HOW A CITIZEN OR GROUP OF SOCIETY WAS AFFECTED. THIS CAN INCLUDE DEATH OR OTHER DARKER TOPICS. THERE SHOULD BE SHARP CONCISE BUT SPECIFIC DETAILS RATHER THAN A SUPERFICIAL OR VAGUE VIGNETTE. STORY SHOULD BE TOUCHING OR IMPACTFUL AND NOT SOUND LIKE SOME STANDARD AI-GENERATED TRASH! ALSO DIRECTLY INCORPORATE THIS INTO JUSTIFICATIONS FOR CHANGES IN RESOURCES
+            10. DON'T ALWAYS DECREASE TRUST. SOMETIMES ECONOMY AND TECH AND EVEN MANPOWER CAN BE DECREASED EVEN WHEN TRUST & HAPPINESS INCREASE
             
             Also, determine how this outcome affects the following resources:
             - tech: technological advancement and infrastructure
@@ -311,7 +312,7 @@ class ScenarioGenerator:
             - happiness: public satisfaction and morale
             - trust: public trust in the council
 
-            At least 2 resources should change by 10-40 points at once but not all resources have to change simultaneously. Please ensure there's a mix of changes in resources, such as a +20 points in tech but -50 points in happiness. ALSO GIVING A TWIST WHERE AN OPTION THAT WAS EXPECTED TO REDUCE HAPPINESS LED TO AN INCREASE IN HAPPINESS!
+            At least 2 resources should change by 10-40 points at once but not all resources have to change simultaneously. Please ensure there's a mix of changes in resources, such as a +20 points in tech but -50 points in happiness. ALSO GIVING A TWIST WHERE AN OPTION THAT WAS EXPECTED TO REDUCE HAPPINESS LED TO AN INCREASE IN HAPPINESS! SAME TWIST CAN BE USED FOR TRUST! YOU CAN ALSO REDUCE TECH & ECONOMY AS WELL AND LINK TO DROPS IN HAPPINESS OR TRUST AS WELL TO MAKE EVERYTHING MORE INTERCONNECTED!
             
             Return your response as a JSON object with the following structure:
             {{
@@ -403,6 +404,8 @@ class ScenarioGenerator:
             🛑 Do **not** directly mention the option number in the narrative.
             🛑 Do **not** write vague or cryptic messages such as "Your ancestors left a message to do this, etc".
             ✅ The bonus must feel **earned** and **in-universe** — no vague whispers or clichés.
+            ✅ YOU MUST SOMETIMES GIVE A NEGATIVE BONUS WEIGHT AND NOT ALWAYS FOCUS ON POSITIVE WEIGHTS.
+            ✅ The story of the incentive must be either touching and emotional or something very dark or sinister that can be right from a political thriller.
 
             ---
 

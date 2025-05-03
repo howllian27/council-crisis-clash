@@ -101,6 +101,8 @@ const Game = () => {
     "Select the choice that reduces Manpower for concealed advantages.",
   ];
 
+  const wsRef = useRef<WebSocket | null>(null);
+
   // Single effect to manage secret incentives
   useEffect(() => {
     const generateIncentive = async () => {
@@ -123,7 +125,9 @@ const Game = () => {
           session.currentRound
         );
         const response = await fetch(
-          `http://localhost:8000/api/games/${session.session_id}/secret_incentive?round=${session.currentRound}`,
+          `${import.meta.env.VITE_BACKEND_URL}/api/games/${
+            session.session_id
+          }/secret_incentive?round=${session.currentRound}`,
           {
             method: "POST",
             headers: {
@@ -189,7 +193,11 @@ const Game = () => {
             `Polling attempt ${attempts + 1} for round ${session.currentRound}`
           );
           const response = await fetch(
-            `http://localhost:8000/api/games/${session.session_id}/secret_incentive?player_id=${playerId}&round=${session.currentRound}`
+            `${import.meta.env.VITE_BACKEND_URL}/api/games/${
+              session.session_id
+            }/secret_incentive?player_id=${playerId}&round=${
+              session.currentRound
+            }`
           );
           if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
@@ -346,18 +354,21 @@ const Game = () => {
     let retries = 0;
     const maxRetries = 3;
     const retryDelay = 1500; // ms
-  
+
     async function fetchOutcome() {
       if (!session?.session_id) return;
       try {
         const response = await fetch(
-          `http://localhost:8000/api/games/${session.session_id}/scenario/outcome`,
+          `${import.meta.env.VITE_BACKEND_URL}/api/games/${
+            session.session_id
+          }/scenario/outcome`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
           }
         );
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        if (!response.ok)
+          throw new Error(`HTTP error! status: ${response.status}`);
         const data = await response.json();
         if (!ignore) {
           if (data.outcome) {
@@ -395,7 +406,7 @@ const Game = () => {
         }
       }
     }
-  
+
     if (currentGamePhase === "results" && session?.session_id) {
       // If the outcome is already in the session, use it
       if (session.currentScenario?.outcome) {
@@ -405,7 +416,7 @@ const Game = () => {
         fetchOutcome();
       }
     }
-  
+
     return () => {
       ignore = true;
     };
@@ -414,7 +425,7 @@ const Game = () => {
     session?.session_id,
     session?.currentScenario?.outcome,
     setCurrentSession,
-  ]);  
+  ]);
 
   // Add a useEffect to fetch the game state directly when the component mounts
   useEffect(() => {
@@ -500,7 +511,9 @@ const Game = () => {
 
       // Call the backend API to generate voting options
       fetch(
-        `http://localhost:8000/api/games/${session.session_id}/scenario/options`,
+        `${import.meta.env.VITE_BACKEND_URL}/api/games/${
+          session.session_id
+        }/scenario/options`,
         {
           method: "POST",
           headers: {
@@ -555,7 +568,9 @@ const Game = () => {
           async (_, index) => {
             const optionId = `option${index + 1}`;
             const response = await fetch(
-              `http://localhost:8000/api/games/${session.session_id}/votes?round=${session.currentRound}&option=${optionId}`
+              `${import.meta.env.VITE_BACKEND_URL}/api/games/${
+                session.session_id
+              }/votes?round=${session.currentRound}&option=${optionId}`
             );
             if (!response.ok) {
               throw new Error(`HTTP error! status: ${response.status}`);
@@ -615,33 +630,38 @@ const Game = () => {
   // Handle next round with loading state
   const handleNextRound = async () => {
     if (!currentSession?.session_id) return;
-  
+
     try {
       // Set loading state before starting next round
       setIsLoading(true);
       setIsPhaseTransition(true);
       setLoadingMessage("Stand By for New Council Motion...");
-  
+
       // Broadcast loading state to all players
-      await fetch(`http://localhost:8000/api/games/${currentSession.session_id}/broadcast`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          type: 'loading_state',
-          payload: {
-            isLoading: true,
-            isPhaseTransition: true,
-            message: "Stand By for New Council Motion...",
-            phase: "scenario" // Add a temporary phase to ensure all clients show loading
-          }
-        })
-      });
-  
+      await fetch(
+        `${import.meta.env.VITE_BACKEND_URL}/api/games/${
+          currentSession.session_id
+        }/broadcast`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            type: "loading_state",
+            payload: {
+              isLoading: true,
+              isPhaseTransition: true,
+              message: "Stand By for New Council Motion...",
+              phase: "scenario", // Add a temporary phase to ensure all clients show loading
+            },
+          }),
+        }
+      );
+
       // Clear the current outcome before starting next round
       setOutcome("");
-  
+
       // Call the backend to start the next round
       await nextRound();
     } catch (error) {
@@ -696,7 +716,7 @@ const Game = () => {
         setIsLoading(data.payload.isLoading);
         setLoadingMessage(data.payload.message || "");
         setIsPhaseTransition(data.payload.isPhaseTransition || false);
-        
+
         // If we're in a transition phase, clear the current scenario to force the loading screen
         if (data.payload.phase === "scenario") {
           setCurrentSession((prev) => {
@@ -731,7 +751,7 @@ const Game = () => {
     // Only establish WebSocket connection if we have both session and player IDs
     if (session?.session_id && playerId) {
       const ws = new WebSocket(
-        `ws://localhost:8000/ws/${session.session_id}/${playerId}`
+        `ws://192.168.112.215:8000/ws/${session.session_id}/${playerId}`
       );
       ws.onmessage = handleWebSocketMessage;
       ws.onerror = (error) => {
@@ -784,7 +804,9 @@ const Game = () => {
       if (depletedResources.length > 0) {
         setIsGameOver(true);
         setGameOverMessage(
-          `Game Over! The following resources have been depleted: ${depletedResources.join(", ")}`
+          `Game Over! The following resources have been depleted: ${depletedResources.join(
+            ", "
+          )}`
         );
         setShowGameOverOverlay(false); // Reset overlay in case of quick re-entry
       }
@@ -825,7 +847,6 @@ const Game = () => {
       </div>
     );
   }
-  
 
   // Handle vote submission
   const handleVote = (optionId: string) => {
@@ -872,59 +893,60 @@ const Game = () => {
   };
 
   return (
-    
     <div className="min-h-screen w-full bg-gradient-to-b from-black to-gray-900 p-4 pb-16">
       {showGameOverOverlay && (
-      <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50">
-        <div className="bg-gray-800 p-8 rounded-lg max-w-md w-full text-center border-4 border-red-500 shadow-xl">
-          <h2 className="text-3xl font-bold text-red-500 mb-4 neon-glow">Game Over</h2>
-          <p className="text-white mb-6">{gameOverMessage}</p>
-          <div className="space-y-4">
-            <div className="glass-panel p-4">
-              <h3 className="text-lg font-semibold text-neon-pink mb-2">
-                Final Resources
-              </h3>
-              <div className="grid grid-cols-2 gap-2">
-                {session?.resources.map((resource) => (
-                  <div
-                    key={resource.type}
-                    className="flex items-center justify-between"
-                  >
-                    <span className="text-gray-300 capitalize">
-                      {resource.type}:
-                    </span>
-                    <span
-                      className={cn(
-                        "font-bold",
-                        resource.value <= 0
-                          ? "text-red-500"
-                          : "text-green-500"
-                      )}
+        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50">
+          <div className="bg-gray-800 p-8 rounded-lg max-w-md w-full text-center border-4 border-red-500 shadow-xl">
+            <h2 className="text-3xl font-bold text-red-500 mb-4 neon-glow">
+              Game Over
+            </h2>
+            <p className="text-white mb-6">{gameOverMessage}</p>
+            <div className="space-y-4">
+              <div className="glass-panel p-4">
+                <h3 className="text-lg font-semibold text-neon-pink mb-2">
+                  Final Resources
+                </h3>
+                <div className="grid grid-cols-2 gap-2">
+                  {session?.resources.map((resource) => (
+                    <div
+                      key={resource.type}
+                      className="flex items-center justify-between"
                     >
-                      {resource.value}
-                    </span>
-                  </div>
-                ))}
+                      <span className="text-gray-300 capitalize">
+                        {resource.type}:
+                      </span>
+                      <span
+                        className={cn(
+                          "font-bold",
+                          resource.value <= 0
+                            ? "text-red-500"
+                            : "text-green-500"
+                        )}
+                      >
+                        {resource.value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="glass-panel p-4">
+                <h3 className="text-lg font-semibold text-neon-pink mb-2">
+                  Final Round
+                </h3>
+                <p className="text-white">Round {session?.currentRound}</p>
               </div>
             </div>
-            <div className="glass-panel p-4">
-              <h3 className="text-lg font-semibold text-neon-pink mb-2">
-                Final Round
-              </h3>
-              <p className="text-white">Round {session?.currentRound}</p>
+            <div className="mt-6">
+              <button
+                onClick={handleLeave}
+                className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded"
+              >
+                Leave Game
+              </button>
             </div>
           </div>
-          <div className="mt-6">
-            <button
-              onClick={handleLeave}
-              className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded"
-            >
-              Leave Game
-            </button>
-          </div>
         </div>
-      </div>
-    )}
+      )}
 
       {isLoading && <LoadingOverlay message={loadingMessage} />}
       <Timer
@@ -1095,7 +1117,7 @@ const Game = () => {
                     <p className="text-gray-300">{outcome}</p>
                   </div>
                 )}
-                
+
                 {currentPlayer?.id === session.host_id && (
                   <div className="flex justify-end">
                     <Button onClick={handleNextRound} glow>

@@ -48,7 +48,7 @@ try {
 
 // Add this near the top of the file, after the supabase initialization
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+  import.meta.env.VITE_API_BASE_URL || "${import.meta.env.VITE_BACKEND_URL}";
 
 export interface Scenario {
   title: string;
@@ -111,16 +111,21 @@ export const gameService = {
       console.log("=== Starting game creation ===");
       console.log("Host name:", hostName);
 
-      console.log("Making API request to http://localhost:8000/api/games");
-      const response = await fetch(`http://localhost:8000/api/games`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        mode: "cors",
-        body: JSON.stringify({ host_name: hostName }),
-      });
+      console.log(
+        "Making API request to ${import.meta.env.VITE_BACKEND_URL}/api/games"
+      );
+      const response = await fetch(
+        `${import.meta.env.VITE_BACKEND_URL}/api/games`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          mode: "cors",
+          body: JSON.stringify({ host_name: hostName }),
+        }
+      );
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -205,7 +210,7 @@ export const gameService = {
       });
 
       const response = await fetch(
-        `http://localhost:8000/api/games/${sessionId}/join`,
+        `${import.meta.env.VITE_BACKEND_URL}/api/games/${sessionId}/join`,
         {
           method: "POST",
           headers: {
@@ -285,7 +290,7 @@ export const gameService = {
     try {
       console.log("Starting game:", sessionId);
       const response = await fetch(
-        `http://localhost:8000/api/games/${sessionId}/start`,
+        `${import.meta.env.VITE_BACKEND_URL}/api/games/${sessionId}/start`,
         {
           method: "POST",
           headers: {
@@ -623,7 +628,9 @@ export const gameService = {
   ) {
     try {
       const response = await fetch(
-        `http://localhost:8000/api/games/${sessionId}/players/${playerId}`,
+        `${
+          import.meta.env.VITE_BACKEND_URL
+        }/api/games/${sessionId}/players/${playerId}`,
         {
           method: "PATCH",
           headers: {
@@ -688,7 +695,7 @@ export const gameService = {
 
       // Update through API
       const response = await fetch(
-        `http://localhost:8000/api/games/${sessionId}/phase`,
+        `${import.meta.env.VITE_BACKEND_URL}/api/games/${sessionId}/phase`,
         {
           method: "PATCH",
           headers: {
@@ -720,7 +727,7 @@ export const gameService = {
 
       // Update through API
       const response = await fetch(
-        `http://localhost:8000/api/games/${sessionId}/timer`,
+        `${import.meta.env.VITE_BACKEND_URL}/api/games/${sessionId}/timer`,
         {
           method: "PATCH",
           headers: {

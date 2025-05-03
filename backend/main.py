@@ -43,7 +43,7 @@ app = FastAPI(title="Project Oversight API")
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8080"],  # Allow frontend origin
+    allow_origins=["http://localhost:8080", "http://192.168.112.215:8080"],  # Allow frontend origin
     allow_credentials=True,
     allow_methods=["*"],  # Allow all methods
     allow_headers=["*"],  # Allow all headers
@@ -1014,7 +1014,7 @@ if __name__ == "__main__":
     print(f"Hostname: {hostname}")
     print(f"Local IP: {local_ip}")
     print(f"Access the API at:")
-    print(f"- Local: http://localhost:8000")
+    # print(f"- Local: ${import.meta.env.VITE_BACKEND_URL}")
     print(f"- Network: http://{local_ip}:8000")
     print(f"- All interfaces: http://0.0.0.0:8000\n")
     uvicorn.run(app, host="0.0.0.0", port=8000) 
